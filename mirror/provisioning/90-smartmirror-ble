@@ -1,0 +1,33 @@
+#!/bin/sh
+#
+# NetworkManager dispatcher: when wlan0 loses its link at runtime (router off,
+# SSID changed, password rotated), put the mirror back into BLE WiFi-setup mode so
+# the phone app can move it to a new network with no keyboard/SSH/F5.
+#
+# Installed to /etc/NetworkManager/dispatcher.d/90-smartmirror-ble by
+# provisioning/install.sh, which must make it root-owned and mode 0755 — NM
+# silently ignores dispatcher scripts that aren't root-owned or are world-writable.
+#
+# NM invokes dispatcher scripts as:  <script> <interface> <action>
+iface="$1"
+action="$2"
+
+[ "$iface" = "wlan0" ] || exit 0
+[ "$action" = "down" ] || exit 0
+
+# Don't disturb an in-progress provisioning session (and avoid Conflicts= churn
+# between the boot unit and the "Change WiFi" re-provision unit).
+if systemctl is-active --quiet smartmirror-ble-setup.service \
+   || systemctl is-active --quiet smartmirror-ble-reprovision.service; then
+  exit 0
+fi
+
+# Still have a default route (e.g. wired ethernet)? Then we're not really offline,
+# so there's nothing to recover.
+if [ -n "$(ip route show default 2>/dev/null)" ]; then
+  exit 0
+fi
+
+# Re-enter setup mode. The boot unit already waits ~30 s for a reconnect and
+# self-exits if WiFi returns, so a brief blip won't strand the mirror in setup mode.
+systemctl start --no-block smartmirror-ble-setup.service

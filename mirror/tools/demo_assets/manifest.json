@@ -1,0 +1,587 @@
+[
+  {
+    "file": "images/white-tee.jpg",
+    "category": "top",
+    "subcategory": "t-shirt",
+    "primaryColor": "#F2F2F2",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "cotton jersey",
+    "formality": 2,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "summer"
+    ],
+    "tags": [
+      "casual",
+      "short-sleeve"
+    ]
+  },
+  {
+    "file": "images/navy-henley.jpg",
+    "category": "top",
+    "subcategory": "henley",
+    "primaryColor": "#26344D",
+    "secondaryColors": [
+      "#FFFFFF"
+    ],
+    "pattern": "solid",
+    "fabricGuess": "cotton",
+    "formality": 2,
+    "warmth": 3,
+    "seasons": [
+      "spring",
+      "autumn"
+    ],
+    "tags": [
+      "casual",
+      "long-sleeve"
+    ]
+  },
+  {
+    "file": "images/oxford-shirt.jpg",
+    "category": "top",
+    "subcategory": "shirt",
+    "primaryColor": "#DCE6F0",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "oxford cotton",
+    "formality": 3,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "autumn"
+    ],
+    "tags": [
+      "smart-casual"
+    ]
+  },
+  {
+    "file": "images/black-polo.jpg",
+    "category": "top",
+    "subcategory": "polo",
+    "primaryColor": "#1B1B1B",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "pique cotton",
+    "formality": 3,
+    "warmth": 2,
+    "seasons": [
+      "summer"
+    ],
+    "tags": [
+      "smart-casual"
+    ]
+  },
+  {
+    "file": "images/grey-sweater.jpg",
+    "category": "top",
+    "subcategory": "sweater",
+    "primaryColor": "#8A8F94",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "wool",
+    "formality": 3,
+    "warmth": 4,
+    "seasons": [
+      "winter",
+      "autumn"
+    ],
+    "tags": [
+      "warm"
+    ]
+  },
+  {
+    "file": "images/striped-tee.jpg",
+    "category": "top",
+    "subcategory": "t-shirt",
+    "primaryColor": "#23416B",
+    "secondaryColors": [
+      "#FFFFFF"
+    ],
+    "pattern": "stripe",
+    "fabricGuess": "cotton",
+    "formality": 2,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "summer"
+    ],
+    "tags": [
+      "casual"
+    ]
+  },
+  {
+    "file": "images/flannel-shirt.jpg",
+    "category": "top",
+    "subcategory": "shirt",
+    "primaryColor": "#7A2E2E",
+    "secondaryColors": [
+      "#2B2B2B"
+    ],
+    "pattern": "plaid",
+    "fabricGuess": "flannel",
+    "formality": 2,
+    "warmth": 3,
+    "seasons": [
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "casual"
+    ]
+  },
+  {
+    "file": "images/white-blouse.jpg",
+    "category": "top",
+    "subcategory": "blouse",
+    "primaryColor": "#FAFAFA",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "silk",
+    "formality": 4,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "summer"
+    ],
+    "tags": [
+      "formal"
+    ]
+  },
+  {
+    "file": "images/charcoal-hoodie.jpg",
+    "category": "top",
+    "subcategory": "hoodie",
+    "primaryColor": "#3A3D42",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "fleece",
+    "formality": 1,
+    "warmth": 4,
+    "seasons": [
+      "winter",
+      "autumn"
+    ],
+    "tags": [
+      "casual",
+      "warm"
+    ]
+  },
+  {
+    "file": "images/linen-shirt.jpg",
+    "category": "top",
+    "subcategory": "shirt",
+    "primaryColor": "#EDE6D6",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "linen",
+    "formality": 3,
+    "warmth": 1,
+    "seasons": [
+      "summer"
+    ],
+    "tags": [
+      "smart-casual",
+      "breathable"
+    ]
+  },
+  {
+    "file": "images/blue-jeans.jpg",
+    "category": "bottom",
+    "subcategory": "jeans",
+    "primaryColor": "#2E4A6B",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "denim",
+    "formality": 2,
+    "warmth": 3,
+    "seasons": [
+      "spring",
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "casual"
+    ]
+  },
+  {
+    "file": "images/black-jeans.jpg",
+    "category": "bottom",
+    "subcategory": "jeans",
+    "primaryColor": "#1A1A1A",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "denim",
+    "formality": 3,
+    "warmth": 3,
+    "seasons": [
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "versatile"
+    ]
+  },
+  {
+    "file": "images/khaki-chinos.jpg",
+    "category": "bottom",
+    "subcategory": "chinos",
+    "primaryColor": "#B8A074",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "cotton twill",
+    "formality": 3,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "autumn"
+    ],
+    "tags": [
+      "smart-casual"
+    ]
+  },
+  {
+    "file": "images/grey-trousers.jpg",
+    "category": "bottom",
+    "subcategory": "trousers",
+    "primaryColor": "#5B5F66",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "wool blend",
+    "formality": 4,
+    "warmth": 3,
+    "seasons": [
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "formal"
+    ]
+  },
+  {
+    "file": "images/denim-shorts.jpg",
+    "category": "bottom",
+    "subcategory": "shorts",
+    "primaryColor": "#3E5C82",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "denim",
+    "formality": 2,
+    "warmth": 1,
+    "seasons": [
+      "summer"
+    ],
+    "tags": [
+      "casual"
+    ]
+  },
+  {
+    "file": "images/pleated-skirt.jpg",
+    "category": "bottom",
+    "subcategory": "skirt",
+    "primaryColor": "#2B2B2B",
+    "secondaryColors": [],
+    "pattern": "plaid",
+    "fabricGuess": "wool",
+    "formality": 3,
+    "warmth": 3,
+    "seasons": [
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "smart-casual"
+    ]
+  },
+  {
+    "file": "images/beige-chinos.jpg",
+    "category": "bottom",
+    "subcategory": "chinos",
+    "primaryColor": "#CFC1A0",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "cotton",
+    "formality": 3,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "summer"
+    ],
+    "tags": [
+      "smart-casual"
+    ]
+  },
+  {
+    "file": "images/black-leggings.jpg",
+    "category": "bottom",
+    "subcategory": "leggings",
+    "primaryColor": "#161616",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "spandex",
+    "formality": 1,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "autumn"
+    ],
+    "tags": [
+      "athletic"
+    ]
+  },
+  {
+    "file": "images/denim-jacket.jpg",
+    "category": "outerwear",
+    "subcategory": "jacket",
+    "primaryColor": "#3A5A82",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "denim",
+    "formality": 2,
+    "warmth": 3,
+    "seasons": [
+      "spring",
+      "autumn"
+    ],
+    "tags": [
+      "casual"
+    ]
+  },
+  {
+    "file": "images/wool-coat.jpg",
+    "category": "outerwear",
+    "subcategory": "coat",
+    "primaryColor": "#3B3B3B",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "wool",
+    "formality": 4,
+    "warmth": 5,
+    "seasons": [
+      "winter"
+    ],
+    "tags": [
+      "formal",
+      "warm"
+    ]
+  },
+  {
+    "file": "images/navy-blazer.jpg",
+    "category": "outerwear",
+    "subcategory": "blazer",
+    "primaryColor": "#1F2A44",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "wool blend",
+    "formality": 4,
+    "warmth": 3,
+    "seasons": [
+      "autumn",
+      "spring"
+    ],
+    "tags": [
+      "formal"
+    ]
+  },
+  {
+    "file": "images/puffer-jacket.jpg",
+    "category": "outerwear",
+    "subcategory": "parka",
+    "primaryColor": "#202830",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "nylon",
+    "formality": 2,
+    "warmth": 5,
+    "seasons": [
+      "winter"
+    ],
+    "tags": [
+      "warm"
+    ]
+  },
+  {
+    "file": "images/beige-cardigan.jpg",
+    "category": "outerwear",
+    "subcategory": "cardigan",
+    "primaryColor": "#CDB89A",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "knit",
+    "formality": 2,
+    "warmth": 4,
+    "seasons": [
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "cozy"
+    ]
+  },
+  {
+    "file": "images/white-sneakers.jpg",
+    "category": "footwear",
+    "subcategory": "sneakers",
+    "primaryColor": "#F4F4F4",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "leather",
+    "formality": 2,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "summer",
+      "autumn"
+    ],
+    "tags": [
+      "versatile"
+    ]
+  },
+  {
+    "file": "images/brown-boots.jpg",
+    "category": "footwear",
+    "subcategory": "boots",
+    "primaryColor": "#5A3A22",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "leather",
+    "formality": 3,
+    "warmth": 4,
+    "seasons": [
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "rugged"
+    ]
+  },
+  {
+    "file": "images/black-loafers.jpg",
+    "category": "footwear",
+    "subcategory": "loafers",
+    "primaryColor": "#171717",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "leather",
+    "formality": 4,
+    "warmth": 2,
+    "seasons": [
+      "spring",
+      "autumn"
+    ],
+    "tags": [
+      "formal"
+    ]
+  },
+  {
+    "file": "images/canvas-sneakers.jpg",
+    "category": "footwear",
+    "subcategory": "sneakers",
+    "primaryColor": "#22324A",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "canvas",
+    "formality": 2,
+    "warmth": 1,
+    "seasons": [
+      "summer"
+    ],
+    "tags": [
+      "casual"
+    ]
+  },
+  {
+    "file": "images/heeled-boots.jpg",
+    "category": "footwear",
+    "subcategory": "heels",
+    "primaryColor": "#2A2A2A",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "suede",
+    "formality": 4,
+    "warmth": 3,
+    "seasons": [
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "formal"
+    ]
+  },
+  {
+    "file": "images/wool-scarf.jpg",
+    "category": "accessory",
+    "subcategory": "scarf",
+    "primaryColor": "#7A2E2E",
+    "secondaryColors": [
+      "#2B2B2B"
+    ],
+    "pattern": "plaid",
+    "fabricGuess": "wool",
+    "formality": 2,
+    "warmth": 4,
+    "seasons": [
+      "winter"
+    ],
+    "tags": [
+      "warm"
+    ]
+  },
+  {
+    "file": "images/leather-belt.jpg",
+    "category": "accessory",
+    "subcategory": "belt",
+    "primaryColor": "#3A2415",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "leather",
+    "formality": 3,
+    "warmth": 1,
+    "seasons": [
+      "spring",
+      "summer",
+      "autumn",
+      "winter"
+    ],
+    "tags": [
+      "versatile"
+    ]
+  },
+  {
+    "file": "images/beanie.jpg",
+    "category": "accessory",
+    "subcategory": "hat",
+    "primaryColor": "#2B3A4A",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "knit",
+    "formality": 1,
+    "warmth": 4,
+    "seasons": [
+      "winter"
+    ],
+    "tags": [
+      "warm"
+    ]
+  },
+  {
+    "file": "images/tote-bag.jpg",
+    "category": "accessory",
+    "subcategory": "bag",
+    "primaryColor": "#D8CDB8",
+    "secondaryColors": [],
+    "pattern": "solid",
+    "fabricGuess": "canvas",
+    "formality": 2,
+    "warmth": 1,
+    "seasons": [
+      "spring",
+      "summer"
+    ],
+    "tags": [
+      "casual"
+    ]
+  }
+]

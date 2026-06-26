@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "972572328026",
+    "project_id": "smart-mirror-capstone-53e65",
+    "storage_bucket": "smart-mirror-capstone-53e65.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:972572328026:android:bf91a3155850b79e121863",
+        "android_client_info": {
+          "package_name": "com.smartmirror.smart_mirror_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuWPBmUPR0vdG7xWTRoFIvotHxYd6fBtc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,30 @@
+[Unit]
+Description=Smart Mirror BLE WiFi Provisioning
+Documentation=https://github.com/YassoBases/Smart-Mirror-Combined
+# Wait for the Bluetooth controller (hci0) to actually attach before we start,
+# so the adapter is present when the GATT peripheral publishes. On the Pi 5 the
+# BCM4345C0 can attach a moment after bluetooth.service is "started", which used
+# to race us. See provisioning/bluetooth.service.d/10-smartmirror.conf.
+After=NetworkManager.service bluetooth.service sys-subsystem-bluetooth-devices-hci0.device
+Wants=NetworkManager.service bluetooth.service sys-subsystem-bluetooth-devices-hci0.device
+# Runs before the mirror UI so the display shows setup instructions if offline.
+Before=smartmirror.service
+
+[Service]
+Type=simple
+# NOTE: the path below must match where this repo is deployed. provisioning/install.sh
+# rewrites it from the repo location, so prefer running that over editing by hand.
+ExecStart=/usr/bin/python3 /home/smartmirror/UI-smart-mirror/provisioning/ble-setup.py
+WorkingDirectory=/home/smartmirror/UI-smart-mirror/provisioning
+# Root required: nmcli dev wifi connect needs elevated privileges on Pi OS.
+User=root
+Restart=on-failure
+# Give a crashed instance time to release its BlueZ advertisement before retrying,
+# so the controller's advertising slots can't get wedged
+# ("Failed to add advertisement: Rejected (0x0b)").
+RestartSec=8
+# Exit 0 means Pi is already online — no restart needed in that case.
+SuccessExitStatus=0
+
+[Install]
+WantedBy=multi-user.target

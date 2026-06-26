@@ -1,0 +1,14 @@
+# Training (run on a CUDA host — Colab/RunPod). Versions are a known-good set;
+# bump to match your CUDA/torch build.
+torch>=2.1
+transformers>=4.40
+peft>=0.11
+accelerate>=0.30
+bitsandbytes>=0.43
+datasets>=2.19
+pillow>=10.0
+
+# Serving (serve.py)
+fastapi>=0.111
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9

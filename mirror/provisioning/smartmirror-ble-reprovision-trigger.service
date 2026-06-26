@@ -1,0 +1,12 @@
+[Unit]
+Description=Start BLE re-provisioning on a backend "Change WiFi" request
+Documentation=https://github.com/YassoBases/Smart-Mirror-Combined
+# Triggered by smartmirror-ble-reprovision-trigger.path — not enabled directly.
+
+[Service]
+Type=oneshot
+# Consume the request first so the next one can re-trigger, then enter setup mode.
+# Runs as root (default), so it may start the re-provisioning unit on the backend's
+# behalf without granting the backend any privilege.
+ExecStartPre=/bin/rm -f /run/smartmirror/reprovision-request
+ExecStart=/usr/bin/systemctl start smartmirror-ble-reprovision.service

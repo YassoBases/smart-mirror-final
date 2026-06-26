@@ -1,0 +1,23 @@
+[Unit]
+Description=Smart Mirror BLE WiFi Re-provisioning (Change WiFi)
+Documentation=https://github.com/YassoBases/Smart-Mirror-Combined
+After=NetworkManager.service bluetooth.service sys-subsystem-bluetooth-devices-hci0.device
+Wants=NetworkManager.service bluetooth.service sys-subsystem-bluetooth-devices-hci0.device
+# Only one provisioner may own the BLE adapter/advertisement at a time.
+Conflicts=smartmirror-ble-setup.service
+
+[Service]
+Type=simple
+# --force advertises for provisioning even though the Pi is already online, so the
+# user can switch to a different network. install.sh rewrites this path; the boot
+# unit's path note applies here too. NOT enabled at boot — started on demand via
+# `systemctl start smartmirror-ble-reprovision.service` from the mirror UI.
+ExecStart=/usr/bin/python3 /home/smartmirror/UI-smart-mirror/provisioning/ble-setup.py --force
+WorkingDirectory=/home/smartmirror/UI-smart-mirror/provisioning
+User=root
+Restart=on-failure
+RestartSec=8
+# Exit 0 == connected to the new network (or the re-provision window elapsed).
+SuccessExitStatus=0
+
+# Intentionally no [Install] section: never enabled at boot.

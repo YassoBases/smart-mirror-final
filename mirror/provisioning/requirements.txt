@@ -1,0 +1,9 @@
+# BLE GATT peripheral (D-Bus / BlueZ; coexists with bluetoothd on Pi OS Bookworm)
+bluezero>=0.7.0
+
+# System packages required (apt, not pip):
+#   sudo apt install -y bluez python3-gi python3-dbus gir1.2-glib-2.0 network-manager
+#   sudo systemctl enable bluetooth
+#
+# Install:
+#   pip3 install -r provisioning/requirements.txt

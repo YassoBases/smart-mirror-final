@@ -1,0 +1,7 @@
+node_modules
+data
+.env
+__tests__
+jest.setup.js
+*.test.js
+npm-debug.log

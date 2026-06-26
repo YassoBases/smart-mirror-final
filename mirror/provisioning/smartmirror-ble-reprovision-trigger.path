@@ -1,0 +1,13 @@
+[Unit]
+Description=Watch for a backend "Change WiFi" request
+Documentation=https://github.com/YassoBases/Smart-Mirror-Combined
+
+[Path]
+# The non-root backend creates this file (see backend/src/routes/provisioning.js).
+# When it appears, the associated trigger service runs as root and starts the BLE
+# re-provisioning unit — so the network-facing backend needs no privilege itself.
+PathExists=/run/smartmirror/reprovision-request
+Unit=smartmirror-ble-reprovision-trigger.service
+
+[Install]
+WantedBy=multi-user.target

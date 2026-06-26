@@ -1,0 +1,59 @@
+# Wardrobe stack: backend API + two Python sidecars on one internal network.
+# The backend reaches the sidecars by service name (bg_remover, pref_ranker).
+#
+#   docker compose up --build
+#   curl localhost:3000/health  localhost:8001/health  localhost:8002/health
+#
+# Secrets load from backend/.env (gitignored). See .env.example for the full list.
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000" # HTTP API
+      - "4000:4000" # mirror sync WebSocket
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override sidecar URLs to the compose service names regardless of .env.
+      - BG_REMOVER_URL=http://bg_remover:8001
+      - PREF_RANKER_URL=http://pref_ranker:8002
+    volumes:
+      - ./backend/data:/app/data # SQLite DB + uploaded/rendered images
+    depends_on:
+      bg_remover:
+        condition: service_healthy
+      pref_ranker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  bg_remover:
+    build: ./services/bg_remover
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  pref_ranker:
+    build: ./services/pref_ranker
+    ports:
+      - "8002:8002"
+    volumes:
+      - pref_models:/app/models # trained per-profile models persist across restarts
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  pref_models:

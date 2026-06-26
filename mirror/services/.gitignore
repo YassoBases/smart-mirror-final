@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+# Trained per-profile preference models (regenerated at runtime)
+pref_ranker/models/*.lgb
+adapter_blip_base/
+adapter/
+*.safetensors
+blip2_captioner/clip_attr_model/
+blip2_captioner/clip_attr_dfmm/
+blip2_captioner/_dfmm_fixture/
+blip2_captioner/data/
+blip2_captioner/_cache_dfmm_*.pt
+blip2_captioner/_cache_dfmm_*.pt
+blip2_captioner/clip_attr_dfmm*/

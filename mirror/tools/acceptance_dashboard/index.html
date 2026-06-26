@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wardrobe — outfit acceptance</title>
+    <!-- Self-contained admin page. Mounted by the backend at /admin/wardrobe (see
+         backend/src/app.js). Plots GET /api/mirrors/wardrobe/metrics/acceptance,
+         showing acceptance before vs after the preference model trained. -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      body { margin: 0; background: #0d0f12; color: #e8eaed; font-family: system-ui, sans-serif; }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px; }
+      h1 { font-size: 20px; font-weight: 600; }
+      .sub { color: #9aa0a6; font-size: 13px; margin-top: 2px; }
+      .cards { display: flex; gap: 16px; margin: 20px 0; }
+      .card { flex: 1; background: #16191d; border: 1px solid #23272e; border-radius: 12px; padding: 16px; }
+      .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #9aa0a6; }
+      .card .value { font-size: 28px; font-weight: 600; margin-top: 4px; }
+      .err { color: #f28b82; }
+      input { background: #16191d; border: 1px solid #23272e; color: #e8eaed; border-radius: 8px; padding: 6px 10px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="wrap"></div>
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+      const { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, ReferenceLine, CartesianGrid, Cell } = Recharts;
+
+      function avg(rows) {
+        if (!rows.length) return null;
+        const t = rows.reduce((s, b) => s + b.total, 0);
+        const a = rows.reduce((s, b) => s + b.accepted, 0);
+        return t ? a / t : null;
+      }
+      const pct = (v) => (v == null ? "—" : Math.round(v * 100) + "%");
+
+      function Dashboard() {
+        const params = new URLSearchParams(location.search);
+        const [mid, setMid] = useState(params.get("mid") || "demo-mirror");
+        const [data, setData] = useState(null);
+        const [error, setError] = useState(null);
+
+        const load = () => {
+          setError(null);
+          fetch(`/api/mirrors/wardrobe/metrics/acceptance?mid=${encodeURIComponent(mid)}`)
+            .then((r) => r.json().then((j) => (r.ok ? j : Promise.reject(j.error))))
+            .then(setData)
+            .catch((e) => setError(String(e)));
+        };
+        useEffect(load, []);
+
+        const buckets = (data && data.buckets) || [];
+        const trainedAt = data && data.modelTrainedAt ? data.modelTrainedAt.slice(0, 10) : null;
+        const before = buckets.filter((b) => !trainedAt || b.weekStart < trainedAt);
+        const after = buckets.filter((b) => trainedAt && b.weekStart >= trainedAt);
+        const chart = buckets.map((b) => ({ ...b, ratePct: Math.round(b.rate * 100), after: trainedAt && b.weekStart >= trainedAt }));
+        const refX = after.length ? after[0].weekStart : null;
+
+        return (
+          <div>
+            <h1>Wardrobe — outfit acceptance</h1>
+            <div className="sub">Share of suggested outfits the user accepted (thumbs up), per week.</div>
+
+            <div style={{ margin: "14px 0", display: "flex", gap: 8 }}>
+              <input value={mid} onChange={(e) => setMid(e.target.value)} placeholder="mirror id" />
+              <button onClick={load} style={{ borderRadius: 8, border: "1px solid #23272e", background: "#1f6feb", color: "#fff", padding: "6px 12px" }}>Reload</button>
+            </div>
+
+            {error && <div className="err">Error: {error}</div>}
+
+            <div className="cards">
+              <div className="card"><div className="label">Before model</div><div className="value">{pct(avg(before))}</div></div>
+              <div className="card"><div className="label">After model</div><div className="value" style={{ color: "#81c995" }}>{pct(avg(after))}</div></div>
+              <div className="card"><div className="label">Model trained</div><div className="value" style={{ fontSize: 18 }}>{trainedAt || "not yet"}</div></div>
+            </div>
+
+            <div style={{ height: 320, background: "#16191d", border: "1px solid #23272e", borderRadius: 12, padding: 12 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chart} margin={{ top: 10, right: 16, bottom: 8, left: -8 }}>
+                  <CartesianGrid stroke="#23272e" vertical={false} />
+                  <XAxis dataKey="weekStart" stroke="#9aa0a6" fontSize={11} />
+                  <YAxis stroke="#9aa0a6" fontSize={11} domain={[0, 100]} unit="%" />
+                  <Tooltip contentStyle={{ background: "#16191d", border: "1px solid #23272e" }} formatter={(v) => v + "%"} />
+                  {refX && <ReferenceLine x={refX} stroke="#f0b429" strokeDasharray="4 3" label={{ value: "model trained", fill: "#f0b429", fontSize: 11, position: "top" }} />}
+                  <Bar dataKey="ratePct" radius={[4, 4, 0, 0]}>
+                    {chart.map((d, i) => <Cell key={i} fill={d.after ? "#81c995" : "#5f6671"} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<Dashboard />);
+    </script>
+  </body>
+</html>

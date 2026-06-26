@@ -1,0 +1,24 @@
+# Combined-repo ignores (each sub-project also keeps its own .gitignore).
+
+# Node / Python deps + venvs
+**/node_modules/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+
+# Flutter
+**/.dart_tool/
+app/build/
+*.apk
+
+# Mirror (CRA) build + runtime data
+mirror/build/
+mirror/backend/data/
+
+# Secrets / local env
+**/.env
+**/.env.local
+
+# Misc
+.DS_Store
+*.log
