@@ -22,12 +22,12 @@ export default function WardrobeWidget() {
   const isGenerated = mode === 'generated';
 
   // Bind hands-free gestures to actions; only active gestures fire per state.
+  // NOTE: the open-palm "summon / suggest an outfit" gesture is intentionally NOT
+  // bound — suggesting is button-driven only ("From my closet"). Open-palm was too
+  // easy to trigger by accident at the mirror. Next/dismiss stay hands-free.
   useEffect(() => {
     const unsub = createGestureRecognizer({
       enabled: () => true,
-      onInvoke: () => {
-        if (state === STATES.IDLE) actions.invoke();
-      },
       onNext: () => {
         if (state === STATES.BOARD) actions.nextOutfit();
       },
@@ -92,7 +92,6 @@ export default function WardrobeWidget() {
                 Generate new outfit
               </button>
             </div>
-            <p className="text-[11px] text-white/40">Or hold an open palm to the mirror</p>
             {error && <p className="text-[11px] text-rose-300/80">{error}</p>}
           </div>
         )}
@@ -132,41 +131,45 @@ export default function WardrobeWidget() {
             />
 
             {state === STATES.BOARD && (
-              <div className="mt-auto pt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={actions.nextOutfit}
-                  disabled={candidates.length < 2}
-                  className="flex-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/15 disabled:opacity-40"
-                >
-                  Next
-                </button>
-                {isGenerated ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={actions.feedbackDown}
-                      className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/15"
-                    >
-                      👎
-                    </button>
-                    <button
-                      type="button"
-                      onClick={actions.feedbackUp}
-                      className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/15"
-                    >
-                      👍
-                    </button>
-                  </>
-                ) : (
+              <div className="mt-auto pt-3 flex flex-col gap-2">
+                {error && <p className="text-[11px] text-rose-300/80 text-center">{error}</p>}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={actions.nextOutfit}
+                    disabled={candidates.length < 2}
+                    className="flex-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/15 disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                  {/* Try-on works for both flows: closet composites real items;
+                      generated synthesizes garment images first (slower). */}
                   <button
                     type="button"
                     onClick={actions.renderVton}
                     className="flex-1 rounded-lg border border-sky-300/30 bg-sky-400/10 px-3 py-2 text-sm text-sky-100 hover:bg-sky-400/20"
                   >
-                    Try it on
+                    Try it on me
                   </button>
-                )}
+                  {isGenerated && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={actions.feedbackDown}
+                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/15"
+                      >
+                        👎
+                      </button>
+                      <button
+                        type="button"
+                        onClick={actions.feedbackUp}
+                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/15"
+                      >
+                        👍
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -110,15 +110,24 @@ export function useWardrobeSession() {
     });
   }, [candidates.length]);
 
+  // Try-on for BOTH flows. Closet outfits composite real closet items by id;
+  // generated outfits first synthesize a product image per garment, so they hit a
+  // different endpoint and return `tryOnUrl` instead of `renderUrl`.
   const renderVton = useCallback(async () => {
     if (busy.current || !current) return;
     busy.current = true;
     setError(null);
     setState(STATES.RENDERING);
     try {
-      const res = await wardrobeApi.render(current.itemIds);
-      setRenderUrl(res.renderUrl);
-      setFromCache(!!res.fromCache);
+      if (mode === 'generated') {
+        const res = await wardrobeApi.generateRender(current.items, context);
+        setRenderUrl(res.tryOnUrl);
+        setFromCache(false);
+      } else {
+        const res = await wardrobeApi.render(current.itemIds);
+        setRenderUrl(res.renderUrl);
+        setFromCache(!!res.fromCache);
+      }
       setState(STATES.VTON); // VtonView flips to FEEDBACK once the image loads
     } catch (err) {
       setError(err.message || 'Could not render the outfit.');
@@ -126,7 +135,7 @@ export function useWardrobeSession() {
     } finally {
       busy.current = false;
     }
-  }, [current]);
+  }, [current, mode, context]);
 
   // Called by VtonView when the render image finishes loading.
   const markVtonReady = useCallback(() => {

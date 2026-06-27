@@ -57,6 +57,16 @@ export const wardrobeApi = {
       body: JSON.stringify({ itemIds }),
     }),
 
+  // Render a GENERATED outfit (concept items, not from the closet) onto the body
+  // photo. The backend generates a product image per garment then composites them
+  // with Nano Banana Pro. Returns { generationId, tryOnUrl }.
+  generateRender: (items, context = null) =>
+    getJson(`${base()}/outfit/generate/render?mid=${mid()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, ...(context ? { context } : {}) }),
+    }),
+
   // Feedback for closet outfits (itemIds) or generated outfits (items attrs).
   feedback: ({ itemIds, items, rating, reasoningShown, context }) =>
     getJson(`${base()}/outfit/feedback?mid=${mid()}`, {

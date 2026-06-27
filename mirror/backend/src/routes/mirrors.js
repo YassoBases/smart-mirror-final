@@ -598,7 +598,10 @@ router.post('/:mirrorId/unknown-face', async (req, res, next) => {
       const path = require('path');
       const dir  = path.join(__dirname, '../../data/alert-snapshots');
       fs.mkdirSync(dir, { recursive: true });
-      const filename = `alert_${Date.now()}_${String(mirrorId).slice(0, 8)}.jpg`;
+      // mirror_id is base64 and can contain "/" and "+", which would turn the
+      // filename into a bogus sub-path (ENOENT) — sanitise to filename-safe chars.
+      const safeMirror = String(mirrorId).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 8);
+      const filename = `alert_${Date.now()}_${safeMirror}.jpg`;
       try {
         fs.writeFileSync(path.join(dir, filename), Buffer.from(imageData, 'base64'));
         imagePath = filename;

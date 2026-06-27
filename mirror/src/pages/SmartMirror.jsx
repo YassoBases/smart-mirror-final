@@ -129,9 +129,24 @@ const SmartMirror = () => {
   // Tracks how many consecutive null-detection frames before we consider the face "gone"
   const faceMissCountRef = useRef(0);
   const FACE_MISS_THRESHOLD = 4; // ~6 seconds at 1.5s interval before considering face left
-  // Consecutive-match confirmation: require 2 detections in a row before switching user
+  // Consecutive-match confirmation: require N detections in a row before switching user
   const consecutiveMatchCountRef = useRef(0);
   const lastMatchedUserIdRef = useRef(null);
+  // ── Face-match confidence gates ─────────────────────────────────────────────
+  // Telling people apart reliably needs two ideas working together:
+  //   • a LENIENT gate to *re-confirm the person already shown* (so the owner is
+  //     not bounced to "unknown" by one slightly-off frame), and
+  //   • a STRICT gate to *adopt a new identity* — switching the active profile, or
+  //     locking on for the first time. A switch must be a CONFIDENT match (small
+  //     distance) that is also clearly closer to that person than to anyone else
+  //     (a real margin), sustained over several frames. This is what guarantees
+  //     "don't change my profile unless you're sure I'm someone else" and stops a
+  //     stranger from being shown as an existing profile.
+  const MATCH_GATE = 0.6;          // re-confirm the locked user / "is this anyone we know"
+  const CONFIDENT_DISTANCE = 0.5;  // a new identity must be at least this close
+  const SWITCH_MARGIN = 0.06;      // ...and this much closer than the next-best user
+  const FIRST_LOCK_COUNT = 2;      // frames to lock on when no one is shown yet
+  const SWITCH_COUNT = 4;          // frames to switch away from an already-shown user
 
   useEffect(() => {
     sleepStateRef.current = sleepState;
@@ -425,40 +440,69 @@ const SmartMirror = () => {
 
     faceMissCountRef.current = 0;
     const { descriptor, captureSnapshot } = faceResult;
-    const match = findUserByFace(descriptor);
+    const match = findUserByFace(descriptor, MATCH_GATE);
+    const lockedId = lockedFaceUserRef.current?.id;
 
-    if (match) {
+    // Case 1 — the face clearly belongs to whoever we're already showing. Use the
+    // lenient gate: no need to re-prove a confident match every single frame, so a
+    // momentary bad frame never bounces the owner to "unknown" or another profile.
+    if (match && match.user && match.user.id === lockedId) {
+      consecutiveUnknownCountRef.current = 0;
+      lastMatchedUserIdRef.current = match.user.id; // reset any rival's streak
+      consecutiveMatchCountRef.current = 0;
+      setFaceStatus('recognized');
+      return;
+    }
+
+    // Is this a CONFIDENT identification of a (different / first) person — close
+    // enough AND clearly closer to them than to anyone else?
+    const confident =
+      match && match.user &&
+      match.distance < CONFIDENT_DISTANCE &&
+      match.margin > SWITCH_MARGIN;
+
+    // Case 2 — a confident match for someone other than who's shown. Require it to
+    // hold for several consecutive frames before committing, and demand MORE
+    // evidence to switch away from an already-shown known user than to lock on from
+    // an empty/unknown state.
+    if (confident) {
+      consecutiveUnknownCountRef.current = 0;
       const { user } = match;
-      if (!user) return;
-      consecutiveUnknownCountRef.current = 0; // a real match clears any unknown streak
 
-      // Consecutive-match confirmation: require 2 detections before switching
       if (lastMatchedUserIdRef.current === user.id) {
-        consecutiveMatchCountRef.current = Math.min(consecutiveMatchCountRef.current + 1, 10);
+        consecutiveMatchCountRef.current = Math.min(consecutiveMatchCountRef.current + 1, 20);
       } else {
         lastMatchedUserIdRef.current = user.id;
         consecutiveMatchCountRef.current = 1;
       }
 
-      if (lockedFaceUserRef.current?.id !== user.id && consecutiveMatchCountRef.current < 2) {
-        setFaceStatus('scanning'); // first match — wait for confirmation
+      const switchingFromKnown = lockedId && lockedId !== 'unknown' && lockedId !== user.id;
+      const needed = switchingFromKnown ? SWITCH_COUNT : FIRST_LOCK_COUNT;
+
+      if (consecutiveMatchCountRef.current < needed) {
+        setFaceStatus('scanning'); // gathering evidence before trusting the change
         return;
       }
 
-      if (lockedFaceUserRef.current?.id !== user.id) {
-        lockedFaceUserRef.current = user;
-        setLockedFaceUser(user);
-        setActiveUser(user.id);
+      lockedFaceUserRef.current = user;
+      setLockedFaceUser(user);
+      setActiveUser(user.id);
 
-        // Notify the backend so settings sync picks up this user
-        if (user.backendId) {
-          const mirrorId = backendApi.getMirrorId();
-          backendApi.setActiveMirrorUser(mirrorId, user.backendId);
-          console.log('[Mirror] Face recognised — switched to:', user.name);
-        }
+      // Notify the backend so settings sync picks up this user's configuration.
+      if (user.backendId) {
+        const mirrorId = backendApi.getMirrorId();
+        backendApi.setActiveMirrorUser(mirrorId, user.backendId);
+        console.log(
+          `[Mirror] Face recognised — switched to: ${user.name} ` +
+          `(dist ${match.distance.toFixed(3)}, margin ${match.margin.toFixed(3)})`,
+        );
       }
       setFaceStatus('recognized');
     } else {
+      // Case 3 — a face is present but we can't confidently say who it is (no match,
+      // or a weak/ambiguous one). Treat it like an unknown face: never let it clobber
+      // the user we're already showing on a single shaky frame; only flag after a run.
+
       // Only auto-enroll local (non-phone) profiles that have no descriptor yet
       const { profiles } = getUsers();
       const unregistered = profiles.find(p => {

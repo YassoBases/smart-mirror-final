@@ -167,24 +167,36 @@ export const removeFaceDescriptor = (userId) => {
 /**
  * Finds the best-matching user for a given descriptor using Euclidean distance.
  * Handles both single-descriptor (legacy number[]) and multi-descriptor (number[][]) storage.
- * Returns { user, distance } or null if no stored descriptors are below threshold.
- * Default threshold of 0.6 is face-api.js's documented good-match cutoff — strict
- * enough to reject strangers (typically > 0.65) while still recognising the owner
- * across lighting/pose variation (often 0.55–0.6).
+ *
+ * Returns null if the closest enrolled user is not below `threshold`. Otherwise
+ * returns:
+ *   {
+ *     user,        // the closest enrolled profile
+ *     distance,    // its best (smallest) distance — lower = more certain
+ *     margin,      // gap to the SECOND-closest *different* enrolled user
+ *     distances,   // { userId: bestDistance } for every enrolled user
+ *   }
+ *
+ * `margin` is the key extra signal for telling people apart: when two enrolled
+ * users score almost the same distance (small margin) the frame is ambiguous and
+ * the caller should not trust it. With only one enrolled user margin is Infinity.
+ *
+ * Default threshold 0.6 is face-api.js's documented good-match cutoff. The caller
+ * decides how confident a match must be to actually *switch* the active profile
+ * (see SmartMirror.handleFaceDetected) — this function only reports the geometry.
  */
 export const findUserByFace = (descriptor, threshold = 0.6) => {
   const stored = getFaceDescriptors();
   const { profiles } = getUsers();
-  let bestUser = null;
-  let bestDistance = Infinity;
 
+  // Best (smallest) distance to each enrolled user.
+  const distances = {}; // { userId: number }
   for (const [userId, storedEntry] of Object.entries(stored)) {
     if (!Array.isArray(storedEntry)) continue;
     // Normalize: stored as [[...], [...]] (new) or [...] (legacy single)
-    const descriptorList = Array.isArray(storedEntry[0])
-      ? storedEntry
-      : [storedEntry];
+    const descriptorList = Array.isArray(storedEntry[0]) ? storedEntry : [storedEntry];
 
+    let userBest = Infinity;
     for (const storedDesc of descriptorList) {
       if (!Array.isArray(storedDesc) || storedDesc.length !== descriptor.length) continue;
       let sum = 0;
@@ -193,14 +205,27 @@ export const findUserByFace = (descriptor, threshold = 0.6) => {
         sum += diff * diff;
       }
       const dist = Math.sqrt(sum);
-      if (dist < bestDistance) {
-        bestDistance = dist;
-        bestUser = profiles.find(p => p.id === userId) || null;
-      }
+      if (dist < userBest) userBest = dist;
     }
+    if (userBest < Infinity) distances[userId] = userBest;
   }
 
-  return bestDistance < threshold ? { user: bestUser, distance: bestDistance } : null;
+  // Rank enrolled users by ascending distance (closest first).
+  const ranked = Object.entries(distances).sort((a, b) => a[1] - b[1]);
+  if (ranked.length === 0) return null;
+
+  const [bestId, bestDistance] = ranked[0];
+  const secondDistance = ranked[1]?.[1] ?? Infinity;
+  const bestUser = profiles.find(p => p.id === bestId) || null;
+
+  if (bestDistance >= threshold || !bestUser) return null;
+
+  return {
+    user: bestUser,
+    distance: bestDistance,
+    margin: secondDistance - bestDistance,
+    distances,
+  };
 };
 
 /**
