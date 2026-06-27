@@ -36,12 +36,15 @@ const REPLICATE_IMG_EDIT_MODEL =
 const REPLICATE_MULTI_IMG_MODEL =
   process.env.REPLICATE_MULTI_IMG_MODEL ||
   "flux-kontext-apps/multi-image-kontext-pro";
-// Nano Banana (Gemini 2.5 Flash Image): one-shot multi-image composer used for
+// Nano Banana Pro (Gemini 3 Pro Image): one-shot multi-image composer used for
 // virtual try-on — give it the body photo + the garment image(s) and it dresses
-// the person in them in a single call. No version pinned (resolveVersion fetches
-// the latest). Override via REPLICATE_NANO_MODEL / Settings (replicate_nano_model).
+// the person in them in a single call. Default is the PRO model on purpose: the
+// standard `google/nano-banana` swaps the person's face and background (rendered
+// "you" comes out as a random model), while pro keeps the exact face, body, pose
+// and background. No version pinned (resolveVersion fetches the latest). Override
+// via REPLICATE_NANO_MODEL / Settings (replicate_nano_model).
 const REPLICATE_NANO_MODEL =
-  process.env.REPLICATE_NANO_MODEL || "google/nano-banana";
+  process.env.REPLICATE_NANO_MODEL || "google/nano-banana-pro";
 
 const API_BASE = "https://api.replicate.com/v1";
 
@@ -105,6 +108,33 @@ async function poll(predictionUrl, headers, { timeoutMs = 120000 } = {}) {
     if (Date.now() > deadline) throw new Error("Replicate prediction timed out");
     await new Promise((r) => setTimeout(r, 2000));
   }
+}
+
+// These Replicate errors are transient and almost always pass on retry:
+//   * Nano Banana / Gemini "Failed to generate image" (random internal flake)
+//   * 429 / "throttled" — low-credit accounts are capped at ~6 predictions/min,
+//     burst 1, so back-to-back calls (e.g. generating several garment images)
+//     get rejected until the limit resets.
+function isTransientReplicateError(msg) {
+  return /failed to generate image|429|too many requests|throttled|rate limit/i.test(
+    msg || "",
+  );
+}
+
+// Retries a create+poll call with exponential backoff (3s, 6s, 12s) on transient
+// errors. Non-transient errors (bad model id, unreachable image url) throw at once.
+async function withTransientRetry(fn, { attempts = 4 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientReplicateError(err.message) || attempt === attempts) throw err;
+      await new Promise((r) => setTimeout(r, 3000 * 2 ** (attempt - 1)));
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -199,24 +229,26 @@ async function generateImage({ prompt, apiToken, model }) {
     ? { prompt, aspect_ratio: "3:4", num_outputs: 1, output_format: "jpg", go_fast: true }
     : { prompt, width: 768, height: 1024, num_outputs: 1 };
 
-  const createRes = await fetch(`${API_BASE}/predictions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ version, input }),
-  });
-  const created = await createRes.json();
-  if (!createRes.ok) {
-    throw new Error(
-      `Replicate create failed (${createRes.status}): ${
-        created?.detail || created?.title || "unknown error"
-      }`,
-    );
-  }
+  return withTransientRetry(async () => {
+    const createRes = await fetch(`${API_BASE}/predictions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ version, input }),
+    });
+    const created = await createRes.json();
+    if (!createRes.ok) {
+      throw new Error(
+        `Replicate create failed (${createRes.status}): ${
+          created?.detail || created?.title || "unknown error"
+        }`,
+      );
+    }
 
-  const done = await poll(created.urls.get, headers);
-  const out = Array.isArray(done.output) ? done.output[0] : done.output;
-  if (!out) throw new Error("Replicate returned no output image");
-  return out;
+    const done = await poll(created.urls.get, headers);
+    const out = Array.isArray(done.output) ? done.output[0] : done.output;
+    if (!out) throw new Error("Replicate returned no output image");
+    return out;
+  });
 }
 
 /**
@@ -328,8 +360,9 @@ async function editImageWithRef({ imageUrl, refImageUrl, prompt, apiToken, model
  * One-shot outfit composer (Nano Banana / Gemini Flash Image): renders the
  * person in `imageUrls[0]` wearing the garments shown in the remaining images,
  * per `prompt`. Used for both closet and generated try-on. All URLs must be
- * PUBLIC so Replicate can fetch them. Nano works best with <= 3 images, so
- * callers typically pass [bodyUrl, garmentCollageUrl].
+ * PUBLIC so Replicate can fetch them. Pass the body photo first, then one image
+ * per garment (NOT a composited collage — Nano reproduces a collage's white
+ * background as blank space and often fails to apply the clothes).
  * @param {{ imageUrls:string[], prompt:string, apiToken?:string, model?:string }} args
  * @returns {Promise<string>} output image URL
  */
@@ -352,27 +385,29 @@ async function composeOutfit({ imageUrls, prompt, apiToken, model }) {
   };
   const version = await resolveVersion(modelRef, headers);
 
-  const createRes = await fetch(`${API_BASE}/predictions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      version,
-      input: { prompt, image_input: imageUrls, output_format: "jpg" },
-    }),
-  });
-  const created = await createRes.json();
-  if (!createRes.ok) {
-    throw new Error(
-      `Replicate create failed (${createRes.status}): ${
-        created?.detail || created?.title || "unknown error"
-      }`,
-    );
-  }
+  return withTransientRetry(async () => {
+    const createRes = await fetch(`${API_BASE}/predictions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        version,
+        input: { prompt, image_input: imageUrls, output_format: "jpg" },
+      }),
+    });
+    const created = await createRes.json();
+    if (!createRes.ok) {
+      throw new Error(
+        `Replicate create failed (${createRes.status}): ${
+          created?.detail || created?.title || "unknown error"
+        }`,
+      );
+    }
 
-  const done = await poll(created.urls.get, headers);
-  const out = Array.isArray(done.output) ? done.output[0] : done.output;
-  if (!out) throw new Error("Replicate returned no output image");
-  return out;
+    const done = await poll(created.urls.get, headers);
+    const out = Array.isArray(done.output) ? done.output[0] : done.output;
+    if (!out) throw new Error("Replicate returned no output image");
+    return out;
+  });
 }
 
 module.exports = {

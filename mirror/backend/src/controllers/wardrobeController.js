@@ -5,7 +5,6 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const sharp = require("sharp");
 
 const { getDb } = require("../config/database");
 const wardrobeDb = require("../../db/wardrobe");
@@ -327,8 +326,8 @@ async function renderOutfit(req, res, next) {
     let vtonRan = false;
 
     if (vtonConfigured) {
-      // Build the garment list from each item's background-removed image; the
-      // whole outfit is dropped on at once by the one-shot composer.
+      // Build the garment list from each item's background-removed image; Nano
+      // Banana Pro dresses the person in all of them in a single pass.
       const garments = [];
       for (const row of rows) {
         if (!row.nobg_filename) {
@@ -336,10 +335,8 @@ async function renderOutfit(req, res, next) {
           continue;
         }
         garments.push({
-          localPath: path.join(wardrobeDb.itemDir(profileId, row.id), row.nobg_filename),
           publicUrl: itemImageUrl(publicBase, profileId, row),
           description: garmentDescription(row, row.category),
-          pattern: row.pattern,
         });
       }
       if (garments.length === 0) {
@@ -350,10 +347,8 @@ async function renderOutfit(req, res, next) {
       try {
         const bodyPublicUrl = `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`;
         finalUrl = await nanoRenderOutfit({
-          profileId,
           bodyPublicUrl,
           garments,
-          publicBase,
           apiToken,
           model: nanoModel,
         });
@@ -439,9 +434,12 @@ function shoppingSearchUrl(item) {
   return `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(q || "outfit")}`;
 }
 
-// Per-render budget (garment image gen + multi-image edit). A render that
-// exceeds it surfaces an error rather than hanging the response.
-const TRYON_BUDGET_MS = 90000;
+// Per-render budget (garment image gen + Nano Banana Pro compose). Generous
+// because nano-banana-pro alone is ~40-45s, and a low-credit Replicate account
+// throttles back-to-back predictions (each garment image + the compose), so the
+// retry backoffs add up. A render that exceeds it surfaces an error rather than
+// hanging the response.
+const TRYON_BUDGET_MS = 180000;
 
 // Short human label for the gallery, e.g. "blazer · shirt · trousers · loafers".
 function outfitTitle(items) {
@@ -500,93 +498,38 @@ async function ensureItemImageFile(profileId, imagePrompt, apiToken, model) {
   }
 }
 
-// Composites garment product images into a single reference sheet (white bg,
-// 2-up grid) the multi-image edit model reads. Returns the saved filename under
-// generated/.
-async function buildGarmentCollage(profileId, paths) {
-  const CELL = 512;
-  const cells = await Promise.all(
-    paths.map((p) =>
-      sharp(p)
-        .resize(CELL, CELL, { fit: "contain", background: "#ffffff" })
-        .toBuffer(),
-    ),
-  );
-  const cols = cells.length <= 1 ? 1 : 2;
-  const rows = Math.ceil(cells.length / cols);
-  const composite = cells.map((input, i) => ({
-    input,
-    left: (i % cols) * CELL,
-    top: Math.floor(i / cols) * CELL,
-  }));
-  const out = await sharp({
-    create: {
-      width: cols * CELL,
-      height: rows * CELL,
-      channels: 3,
-      background: "#ffffff",
-    },
-  })
-    .composite(composite)
-    .jpeg({ quality: 90 })
-    .toBuffer();
-  const dir = wardrobeDb.ensureDir(wardrobeDb.generatedDir(profileId));
-  const filename = `collage_${crypto.randomUUID()}.jpg`;
-  fs.writeFileSync(path.join(dir, filename), out);
-  return filename;
-}
-
-// Graphic prints / logos transfer worst in a single multi-garment pass, so they
-// get a focused second Nano pass.
-function isGraphicPattern(p) {
-  return p === "print";
-}
-
-// Renders an outfit onto the body photo with Nano Banana (one-shot composer):
-// composites the garment images into one reference sheet, dresses the person in
-// them in a single pass, then re-runs each graphic-print/logo garment on its own
-// for a sharper result. Returns the final Replicate image URL. Every URL must be
-// publicly fetchable by Replicate. garments: [{ localPath, publicUrl, description,
-// pattern }].
-async function nanoRenderOutfit({ profileId, bodyPublicUrl, garments, publicBase, apiToken, model }) {
-  const usable = garments.filter((g) => g.localPath && g.publicUrl);
+// Maps a wardrobe category to an IDM-VTON garment region. IDM-VTON only dresses
+// Renders an outfit onto the body photo with Nano Banana Pro (Gemini 3 Pro
+// Image): a single generative pass that dresses the person in all the garments at
+// once — including footwear/accessories. Returns the Replicate image URL. Every
+// URL must be publicly fetchable by Replicate. garments: [{ publicUrl, description }].
+//
+// What makes this render the actual USER (not a random model):
+//   * The PRO model. Standard `google/nano-banana` swaps the face and background;
+//     pro keeps the exact face, body, pose and background. See lib/replicate.js.
+//   * Body photo FIRST, then ONE image per garment — never a composited collage
+//     (Nano reads a collage's white background as blank space and leaves gaps).
+//   * An explicit "keep this EXACT person, preserve the face" instruction.
+async function nanoRenderOutfit({ bodyPublicUrl, garments, apiToken, model }) {
+  const usable = garments.filter((g) => g.publicUrl);
   if (usable.length === 0) throw new Error("no garment images to render");
 
-  const collageFile = await buildGarmentCollage(
-    profileId,
-    usable.map((g) => g.localPath),
-  );
-  const collageUrl = `${publicBase}/wardrobe/${profileId}/generated/${collageFile}`;
-  const descriptions = usable.map((g) => g.description).filter(Boolean);
-
+  const items = usable.map((g) => g.description).filter(Boolean).join(", ");
   const prompt =
-    "Dress the person in the first image in exactly the clothes shown in the " +
-    "second image: " +
-    descriptions.join("; ") +
-    ". Keep the exact same face, hair, body shape, pose, camera angle, lighting " +
-    "and background. Photorealistic, natural fit, full outfit.";
-  let outUrl = await replicate.composeOutfit({
-    imageUrls: [bodyPublicUrl, collageUrl],
+    "The FIRST image is a real photo of a specific person. Keep this EXACT " +
+    "person — their face, hair, facial hair, glasses, skin tone, body shape and " +
+    "pose must stay 100% identical and recognizable. Do NOT generate a different " +
+    "person. Edit ONLY their clothing: dress them in the items shown in the other " +
+    `reference images${items ? ` (${items})` : ""}. Keep the same background, ` +
+    "camera angle and lighting. Preserve the face. Photorealistic, natural fit, " +
+    "full-body result.";
+
+  return replicate.composeOutfit({
+    imageUrls: [bodyPublicUrl, ...usable.map((g) => g.publicUrl)],
     prompt,
     apiToken,
     model,
   });
-
-  for (const g of usable) {
-    if (!isGraphicPattern(g.pattern)) continue;
-    const refinePrompt =
-      `Refine the ${g.description || "garment"} the person is wearing so its ` +
-      "graphic print / logo exactly matches the garment shown in the second " +
-      "image. Keep the person, face, pose, lighting and everything else " +
-      "identical. Photorealistic.";
-    outUrl = await replicate.composeOutfit({
-      imageUrls: [outUrl, g.publicUrl],
-      prompt: refinePrompt,
-      apiToken,
-      model,
-    });
-  }
-  return outUrl;
 }
 
 // POST /outfit/generate/render — render ONE generated outfit onto the body photo
@@ -619,6 +562,11 @@ async function renderGeneratedOutfit(req, res, next) {
     if (garments.length === 0) {
       return res.status(400).json({ error: "Outfit has no renderable garments" });
     }
+    // Stored on the generation row as its "prompt" (what was put on the body).
+    const prompt = garments
+      .map((g) => garmentDescriptionFor(g))
+      .filter(Boolean)
+      .join(", ");
 
     const publicBase = (
       (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) ||
@@ -647,23 +595,20 @@ async function renderGeneratedOutfit(req, res, next) {
             );
             if (!p) continue;
             garmentRefs.push({
-              localPath: p,
               publicUrl: `${publicBase}/wardrobe/${profileId}/generated/${path.basename(p)}`,
               description: garmentDescriptionFor(g),
-              pattern: g.pattern,
             });
           }
           if (garmentRefs.length === 0) {
             throw new Error("could not generate garment reference images");
           }
 
-          // 2) Compose onto the body with Nano Banana (one-shot + print refine).
+          // 2) Dress the body in the generated garments with Nano Banana Pro,
+          // which preserves the user's face/identity in a single pass.
           const bodyPublicUrl = `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`;
           const outUrl = await nanoRenderOutfit({
-            profileId,
             bodyPublicUrl,
             garments: garmentRefs,
-            publicBase,
             apiToken,
             model: nanoModel,
           });

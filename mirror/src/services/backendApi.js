@@ -76,6 +76,10 @@ export const backendApi = {
     return data.profiles || [];
   },
 
+  // Public URL for an enrolled face image, on the same (dynamic) host as the API
+  // so face-api can fetch it for descriptor computation without cross-origin pain.
+  faceImageUrl: (filename) => `${API_URL}/faces/${filename}`,
+
   getProfiles: async () => {
     const res = await fetch(`${API_URL}/api/profiles`, {
       headers: backendApi._authHeaders(),

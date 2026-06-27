@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { saveFaceDescriptors, getFaceDescriptors, getUsers, saveProfiles } from '../data/users';
 import { backendApi } from '../services/backendApi';
+import { getGeneralSettings } from '../data/generalSettings';
 
-const FACE_MODEL_URL =
-  'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+// Bundled locally (public/facedata) — same weights the live detector uses, served
+// from the mirror itself so enrollment works offline and matches at runtime.
+const FACE_MODEL_URL = `${process.env.PUBLIC_URL || ''}/facedata`;
 const POLL_MS = 10_000; // re-check for new face uploads every 10 s
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -96,6 +98,10 @@ const useFaceEnrollment = () => {
     if (!mirrorId) return;
 
     const run = async () => {
+      // Skip entirely when face recognition is off — no model load, no polling,
+      // no descriptor inference. (Re-checked each tick; cheap.)
+      if (!getGeneralSettings().faceRecognitionEnabled) return;
+
       // Load face-api.js models once
       if (!modelsReadyRef.current) {
         const ok = await loadModels();
@@ -104,20 +110,16 @@ const useFaceEnrollment = () => {
         console.log('[FaceEnroll] Models ready.');
       }
 
-      // Fetch all profiles linked to this mirror
+      // Fetch all profiles linked to this mirror (dynamic host via backendApi —
+      // never hardcode localhost, or face-image fetches break off the kiosk).
       let profiles;
       try {
-        const res = await fetch(
-          `http://127.0.0.1:3000/api/mirror/${mirrorId}/profiles`
-        );
-        if (!res.ok) return;
-        // Endpoint returns { profiles: [...] } — extract the array.
-        const json = await res.json();
-        profiles = Array.isArray(json) ? json : (json.profiles ?? []);
+        profiles = await backendApi.getProfilesByMirror(mirrorId);
       } catch (e) {
         console.warn('[FaceEnroll] profile fetch failed:', e.message);
         return;
       }
+      if (!profiles || profiles.length === 0) return;
 
       const existingDescriptors = getFaceDescriptors();
 
@@ -145,7 +147,7 @@ const useFaceEnrollment = () => {
         // Compute descriptor for each pose image
         const descriptors = [];
         for (const filename of filenames) {
-          const faceUrl = `http://127.0.0.1:3000/faces/${filename}`;
+          const faceUrl = backendApi.faceImageUrl(filename);
           const descriptor = await descriptorFromUrl(faceUrl);
           if (descriptor) {
             descriptors.push(descriptor);

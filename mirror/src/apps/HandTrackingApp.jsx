@@ -160,9 +160,7 @@ const HandTrackingApp = ({ onClose, onHandPosition, settings = {} }) => {
       try {
         // Initialize MediaPipe Hands
         const handsInstance = new Hands({
-          locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-          }
+          locateFile: (file) => `${process.env.PUBLIC_URL || ''}/mediapipe/hands/${file}`,
         });
 
         const runtimeConfig = getHandTrackingRuntimeConfig(settingsRef.current);

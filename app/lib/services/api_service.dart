@@ -609,7 +609,12 @@ class ApiService {
     String? reasoning,
     OutfitContext? context,
   }) async {
-    final res = await http.post(
+    // Rendering generates garment images then composes with Nano Banana Pro, which
+    // takes ~80-90s (longer when Replicate throttles a low-credit account). Allow a
+    // generous timeout so the request isn't abandoned mid-render, with a clear
+    // message if it really does hang.
+    final res = await http
+        .post(
       Uri.parse(
           '${ApiConfig.baseUrl}/profiles/$profileId/outfit/generate/render'),
       headers: _headers,
@@ -618,6 +623,13 @@ class ApiService {
         if (reasoning != null && reasoning.isNotEmpty) 'reasoning': reasoning,
         if (context != null) 'context': context.toJson(),
       }),
+    )
+        .timeout(
+      const Duration(seconds: 200),
+      onTimeout: () => throw ApiException(
+        'Rendering took too long. Please try again in a moment.',
+        0,
+      ),
     );
     final body = _parse(res) as Map<String, dynamic>;
     return (

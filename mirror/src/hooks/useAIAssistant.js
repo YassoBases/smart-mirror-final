@@ -875,14 +875,11 @@ export function useAIAssistant() {
     setUiStatus('idle', '');
     setUserText('');
     setAiText('');
-    // Short cooldown so wake word doesn't immediately re-trigger
-    cooldownRef.current = true;
-    setTimeout(() => {
-      cooldownRef.current = false;
-      // Resume VAD wake word listening after session closes
-      startVAD();
-    }, 2200);
-  }, [releaseWebRTC, setUiStatus, startVAD]);
+    // On-demand voice: fully release the mic when the session closes — nothing
+    // keeps listening until the user opens the assistant again.
+    stopVAD();
+    cooldownRef.current = false;
+  }, [releaseWebRTC, setUiStatus, stopVAD]);
 
   // Wire the indirect ref so resetInactivity can call endSession
   useEffect(() => { endSessionRef.current = endSession; }, [endSession]);
@@ -1392,9 +1389,12 @@ export function useAIAssistant() {
       // network / no-speech / audio-capture: onend will fire and restart automatically
     };
 
-    rec.onend = () => { if (!cancelled) { try { rec.start(); } catch {} } };
-
-    try { rec.start(); } catch (e) { console.error('[Speech] Could not start:', e); }
+    // On-demand voice: NO always-on wake word. The recognizer is created so the
+    // capability is detected, but it is not started on mount and does not auto-
+    // restart — that continuous SpeechRecognition loop was a major idle CPU drain
+    // on the Pi. The assistant is opened explicitly via the "Open AI" affordance
+    // (tap / pinch-click → openWithVoice).
+    rec.onend = () => {};
 
     return () => {
       cancelled = true;
@@ -1423,10 +1423,12 @@ export function useAIAssistant() {
     return () => events.forEach(e => document.removeEventListener(e, unlock, { capture: true }));
   }, []);
 
-  // ── Start VAD on mount (works silently if mic already permitted) ──────
+  // ── VAD lifecycle ────────────────────────────────────────────────────
+  // On-demand voice: do NOT start the mic/VAD on mount. It starts only when a
+  // session is opened (openWithVoice → startWebRTC, or the chat-mode fallback's
+  // startVAD) and is stopped again in endSession. This keeps the 40 ms audio loop
+  // and the mic off while nobody is using the assistant.
   useEffect(() => {
-    // Try immediately — succeeds if permission was previously granted
-    startVAD();
     return () => stopVAD();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

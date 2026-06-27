@@ -39,6 +39,9 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
+    "copy-mediapipe": "mkdir -p public/mediapipe/hands && cp node_modules/@mediapipe/hands/*.js node_modules/@mediapipe/hands/*.wasm node_modules/@mediapipe/hands/*.data node_modules/@mediapipe/hands/*.tflite node_modules/@mediapipe/hands/*.binarypb public/mediapipe/hands/",
+    "prebuild": "npm run copy-mediapipe",
+    "prestart": "npm run copy-mediapipe",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",

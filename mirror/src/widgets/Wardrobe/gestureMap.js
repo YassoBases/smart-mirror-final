@@ -42,6 +42,15 @@ export function createGestureRecognizer(handlers = {}) {
   let fistSince = null;
   let swipeStart = null; // { x, t }
   let lastFire = 0;
+  // Edge-detection latches: a dwell gesture fires ONCE, then can't fire again
+  // until the hand LEAVES the frame (detected=false) and returns. Re-arming only
+  // when the hand leaves — not when the pose merely changes — is deliberate:
+  // closing the widget is a pinch-click, which momentarily drops the open-palm
+  // pose; if that re-armed invoke, the still-raised hand would instantly
+  // re-summon the widget in a loop. So a fresh summon needs the hand lowered and
+  // raised again.
+  let openArmed = true;
+  let fistArmed = true;
 
   const fire = (name, fn) => {
     const now = Date.now();
@@ -58,21 +67,28 @@ export function createGestureRecognizer(handlers = {}) {
 
     if (!p.detected) {
       openSince = fistSince = swipeStart = null;
+      openArmed = fistArmed = true; // hand left the frame -> re-arm both
       return;
     }
 
-    // Open-palm dwell -> invoke.
+    // Open-palm dwell -> invoke. Fires once until the hand leaves the frame.
     if (p.isHandOpen) {
       openSince = openSince ?? now;
-      if (now - openSince >= OPEN_DWELL_MS) return fire('wardrobe_invoke', handlers.onInvoke);
+      if (openArmed && now - openSince >= OPEN_DWELL_MS) {
+        openArmed = false; // latched until detected=false re-arms it
+        return fire('wardrobe_invoke', handlers.onInvoke);
+      }
     } else {
       openSince = null;
     }
 
-    // Fist dwell -> dismiss.
+    // Fist dwell -> dismiss. Fires once until the hand leaves the frame.
     if (p.isFist) {
       fistSince = fistSince ?? now;
-      if (now - fistSince >= FIST_DWELL_MS) return fire('dismiss', handlers.onDismiss);
+      if (fistArmed && now - fistSince >= FIST_DWELL_MS) {
+        fistArmed = false; // latched until detected=false re-arms it
+        return fire('dismiss', handlers.onDismiss);
+      }
     } else {
       fistSince = null;
     }

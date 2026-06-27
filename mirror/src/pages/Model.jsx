@@ -338,7 +338,7 @@ const Model = () => {
     window.addEventListener('resize', handleResize);
 
     const hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+      locateFile: (file) => `${process.env.PUBLIC_URL || ''}/mediapipe/hands/${file}`,
     });
 
     const onResults = (results) => {

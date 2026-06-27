@@ -22,3 +22,6 @@ mirror/backend/data/
 # Misc
 .DS_Store
 *.log
+
+# Local systemd unit backups (not for VCS)
+.systemd-backup-*/

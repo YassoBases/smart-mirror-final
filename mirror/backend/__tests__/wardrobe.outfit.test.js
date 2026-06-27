@@ -222,7 +222,7 @@ describe("outfit/render", () => {
     expect(pathOf(second.body.renderUrl)).toBe(pathOf(first.body.renderUrl));
   });
 
-  test("uses Replicate (Nano Banana) compose when configured", async () => {
+  test("uses Replicate (Nano Banana Pro) compose when configured", async () => {
     const topId = await makeItem("top");
     await auth(request(app).post(`${base()}/body-photo`)).attach("photo", img, {
       filename: "me2.jpg",
@@ -243,6 +243,9 @@ describe("outfit/render", () => {
       });
       expect(res.status).toBe(200);
       expect(replicate.composeOutfit).toHaveBeenCalled();
+      // body photo first, then the garment image(s)
+      const { imageUrls } = replicate.composeOutfit.mock.calls[0][0];
+      expect(imageUrls.length).toBeGreaterThanOrEqual(2);
       expect(global.fetch).toHaveBeenCalledWith("https://replicate.test/out.png");
     } finally {
       global.fetch = realFetch;

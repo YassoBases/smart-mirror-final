@@ -81,6 +81,9 @@ const SmartMirror = () => {
   const cursorDetectedRef  = useRef(false);
   const [isHandDetected, setIsHandDetected] = useState(false);
   const lastHoverCheckRef  = useRef(0);
+  // Short-lived cache of the [data-app-id] node list so the hover scan doesn't
+  // re-run querySelectorAll on every check (rects are still read live each scan).
+  const appNodesRef        = useRef({ at: 0, nodes: null });
   const lastSleepResetRef  = useRef(0);
   const [handTrackingEnabled, setHandTrackingEnabled] = useState(true); // start true — camera needed for face recognition from first frame
   const [isDragging, setIsDragging] = useState(false);
@@ -578,7 +581,11 @@ const SmartMirror = () => {
       const nowMs = performance.now();
       if (nowMs - lastHoverCheckRef.current >= 200) {
         lastHoverCheckRef.current = nowMs;
-        const allApps = document.querySelectorAll('[data-app-id]');
+        // Refresh the node list at most once per second; rects below are live.
+        if (!appNodesRef.current.nodes || nowMs - appNodesRef.current.at >= 1000) {
+          appNodesRef.current = { at: nowMs, nodes: document.querySelectorAll('[data-app-id]') };
+        }
+        const allApps = appNodesRef.current.nodes;
         let targetAppId = null;
         let highestZIndex = -Infinity;
 
@@ -920,12 +927,11 @@ const SmartMirror = () => {
         </div>
       )}
 
-      {/* Open AI button — also starts VAD wake word listening on first click */}
+      {/* Open AI button — on-demand voice: opens a session (which starts the mic),
+          closing it releases the mic. No always-on listening. */}
       <button
         onClick={() => {
           assistant.unlockAudio();
-          // Ensure VAD is running so wake word works after this gesture grants mic
-          assistant.startVAD();
           if (assistant.isOpen) {
             assistant.endSession();
           } else {

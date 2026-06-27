@@ -33,10 +33,20 @@ const clamp01 = (value) => Math.min(Math.max(value, 0), 1);
 
 const FPS_SMOOTHING = 0.9;
 
-const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
-// Sample faster than the old 1.5s so a brief look at the mirror is caught and
-// profile switches feel responsive. Still light enough for a Pi at inputSize 320.
+// Face-api weights are bundled in public/facedata (served locally) so the kiosk
+// works offline and boots fast — no jsDelivr dependency. Uses the maintained
+// @vladmandic/face-api lib + matching weights (the old justadudewhohacks 0.22.2
+// build failed to parse its weights on modern Chromium → recognition never worked).
+const FACE_MODEL_URL = `${process.env.PUBLIC_URL || ''}/facedata`;
+// Active sampling cadence when someone is at the mirror. When idle (no hand and no
+// face for a while) the loop backs off to FACE_DETECT_IDLE_MS to save CPU.
 const FACE_DETECT_INTERVAL_MS = 700;
+const FACE_DETECT_IDLE_MS = 2000;
+// Go idle after this long with no hand and no detected face.
+const ACTIVITY_IDLE_AFTER_MS = 3000;
+// Hand-camera FPS while idle (no recent hand). MediaPipe still runs, just rarely,
+// so a newly raised hand is picked up within ~1 frame.
+const IDLE_FRAME_RATE = 6;
 
 const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, enabled }) => {
   const videoRef = useRef(null);
@@ -58,6 +68,11 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
   const handPositionCallbackRef = useRef(onHandPosition);
   const showPreviewRef = useRef(settings.showPreview || false);
   const lastFrameTimestampRef = useRef(0);
+  // Adaptive idle: timestamps of the last detected hand / face. When neither has
+  // been seen for ACTIVITY_IDLE_AFTER_MS the hand camera throttles to a low FPS
+  // and the face loop samples slowly, then both ramp back up on the next sighting.
+  const lastHandSeenRef = useRef(0);
+  const lastFaceSeenRef = useRef(0);
   const isProcessingFrameRef = useRef(false);
   const smoothedPositionRef = useRef(null);
   const smoothingRef = useRef(0);
@@ -106,49 +121,69 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
     let alive = true;
     let pollTimer = null;
 
+    // Self-scheduling loop (not setInterval) so the cadence can adapt: sample every
+    // FACE_DETECT_INTERVAL_MS while someone is present, but back off to
+    // FACE_DETECT_IDLE_MS once no hand and no face have been seen for a while.
+    const scheduleNextFace = () => {
+      if (!alive) return;
+      const now = performance.now();
+      const idle =
+        now - lastHandSeenRef.current > ACTIVITY_IDLE_AFTER_MS &&
+        now - lastFaceSeenRef.current > ACTIVITY_IDLE_AFTER_MS;
+      const delay = idle ? FACE_DETECT_IDLE_MS : FACE_DETECT_INTERVAL_MS;
+      faceIntervalRef.current = setTimeout(runFaceDetect, delay);
+    };
+
+    const runFaceDetect = async () => {
+      const video = videoRef.current;
+      const faceapi = window.faceapi;
+      if (!video || !faceapi || !faceModelsLoadedRef.current ||
+          video.readyState < 2 || video.videoWidth === 0) {
+        scheduleNextFace();
+        return;
+      }
+
+      try {
+        const detection = await faceapi
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+          .withFaceLandmarks(true)
+          .withFaceDescriptor();
+
+        if (!alive) return;
+        const cb = onFaceDetectedRef.current;
+        if (!cb) return;
+
+        if (detection) {
+          lastFaceSeenRef.current = performance.now(); // keep sampling fast
+          lastFaceBoxRef.current = detection.detection.box;
+          // Lazy snapshot — only encoded if the consumer actually invokes it
+          // (i.e. when reporting an unknown face), so recognized frames stay
+          // cheap on the Pi. Returns a base64 JPEG (no data: prefix) the backend
+          // can write straight to disk, or null on failure.
+          const captureSnapshot = () => {
+            try {
+              const vid = videoRef.current;
+              if (!vid || !vid.videoWidth) return null;
+              const scale = Math.min(1, 320 / vid.videoWidth);
+              const sc = snapshotCanvasRef.current || (snapshotCanvasRef.current = document.createElement('canvas'));
+              sc.width = Math.round(vid.videoWidth * scale);
+              sc.height = Math.round(vid.videoHeight * scale);
+              sc.getContext('2d').drawImage(vid, 0, 0, sc.width, sc.height);
+              return sc.toDataURL('image/jpeg', 0.7).split(',')[1] || null;
+            } catch { return null; }
+          };
+          cb({ descriptor: Array.from(detection.descriptor), box: detection.detection.box, captureSnapshot });
+        } else {
+          lastFaceBoxRef.current = null;
+          cb(null);
+        }
+      } catch (_) { /* frame not ready */ }
+      scheduleNextFace();
+    };
+
     const startFaceLoop = () => {
-      if (faceIntervalRef.current) clearInterval(faceIntervalRef.current);
-      faceIntervalRef.current = setInterval(async () => {
-        const video = videoRef.current;
-        const faceapi = window.faceapi;
-        if (!video || !faceapi || !faceModelsLoadedRef.current) return;
-        if (video.readyState < 2 || video.videoWidth === 0) return;
-
-        try {
-          const detection = await faceapi
-            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
-            .withFaceLandmarks(true)
-            .withFaceDescriptor();
-
-          if (!alive) return;
-          const cb = onFaceDetectedRef.current;
-          if (!cb) return;
-
-          if (detection) {
-            lastFaceBoxRef.current = detection.detection.box;
-            // Lazy snapshot — only encoded if the consumer actually invokes it
-            // (i.e. when reporting an unknown face), so recognized frames stay
-            // cheap on the Pi. Returns a base64 JPEG (no data: prefix) the backend
-            // can write straight to disk, or null on failure.
-            const captureSnapshot = () => {
-              try {
-                const vid = videoRef.current;
-                if (!vid || !vid.videoWidth) return null;
-                const scale = Math.min(1, 320 / vid.videoWidth);
-                const sc = snapshotCanvasRef.current || (snapshotCanvasRef.current = document.createElement('canvas'));
-                sc.width = Math.round(vid.videoWidth * scale);
-                sc.height = Math.round(vid.videoHeight * scale);
-                sc.getContext('2d').drawImage(vid, 0, 0, sc.width, sc.height);
-                return sc.toDataURL('image/jpeg', 0.7).split(',')[1] || null;
-              } catch { return null; }
-            };
-            cb({ descriptor: Array.from(detection.descriptor), box: detection.detection.box, captureSnapshot });
-          } else {
-            lastFaceBoxRef.current = null;
-            cb(null);
-          }
-        } catch (_) { /* frame not ready */ }
-      }, FACE_DETECT_INTERVAL_MS);
+      if (faceIntervalRef.current) clearTimeout(faceIntervalRef.current);
+      scheduleNextFace();
     };
 
     const loadAndStart = async () => {
@@ -185,7 +220,7 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
       alive = false;
       clearTimeout(pollTimer);
       if (faceIntervalRef.current) {
-        clearInterval(faceIntervalRef.current);
+        clearTimeout(faceIntervalRef.current);
         faceIntervalRef.current = null;
       }
     };
@@ -210,9 +245,9 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
       try {
         // Initialize MediaPipe Hands
         const handsInstance = new Hands({
-          locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-          }
+          // Serve MediaPipe runtime assets locally (public/mediapipe/hands) instead
+          // of jsDelivr, so the kiosk works offline and boots fast on the Pi.
+          locateFile: (file) => `${process.env.PUBLIC_URL || ''}/mediapipe/hands/${file}`,
         });
 
         const runtimeConfig = getHandTrackingRuntimeConfig(settingsRef.current);
@@ -238,13 +273,19 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
               }
 
               const currentRuntime = getHandTrackingRuntimeConfig(settingsRef.current);
-              const maxFrameRate = currentRuntime.maxFrameRate;
+              let maxFrameRate = currentRuntime.maxFrameRate;
+              // Idle down to a low FPS when no hand has been seen recently — saves
+              // most of the per-frame MediaPipe inference cost while nobody is
+              // gesturing. The next raised hand is still caught within ~1 frame.
+              const nowMs = performance.now();
+              if (nowMs - lastHandSeenRef.current > ACTIVITY_IDLE_AFTER_MS) {
+                maxFrameRate = Math.min(maxFrameRate || IDLE_FRAME_RATE, IDLE_FRAME_RATE);
+              }
               if (maxFrameRate) {
-                const now = performance.now();
-                if (now - lastFrameTimestampRef.current < 1000 / maxFrameRate) {
+                if (nowMs - lastFrameTimestampRef.current < 1000 / maxFrameRate) {
                   return;
                 }
-                lastFrameTimestampRef.current = now;
+                lastFrameTimestampRef.current = nowMs;
               }
 
               isProcessingFrameRef.current = true;
@@ -357,8 +398,10 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
     }
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      // A hand is present — keep the camera at full FPS (adaptive idle ramp-up).
+      lastHandSeenRef.current = performance.now();
       const hand = results.multiHandLandmarks[0];
-      
+
       // Get thumb tip (landmark 4), index tip (landmark 8), and pinky tip (landmark 20)
       const thumbTip = hand[4];
       const indexTip = hand[8];
