@@ -42,7 +42,20 @@ const GENERATE_RESPONSE_SCHEMA = {
                 description: { type: "string" },
                 imagePrompt: { type: "string" },
               },
-              required: ["category", "subcategory", "description", "imagePrompt"],
+              // Structured Outputs (strict) requires every property to be listed
+              // in `required`. These are all fields the stylist can always fill
+              // for an invented garment.
+              required: [
+                "category",
+                "subcategory",
+                "primaryColor",
+                "pattern",
+                "formality",
+                "warmth",
+                "seasons",
+                "description",
+                "imagePrompt",
+              ],
               additionalProperties: false,
             },
           },

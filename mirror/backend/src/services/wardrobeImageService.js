@@ -16,6 +16,7 @@ const sharp = require("sharp");
 const wardrobeDb = require("../../db/wardrobe");
 const bgRemover = require("../../lib/bg_remover");
 const blip2 = require("../../lib/blip2_client");
+const aiVision = require("../../lib/openai");
 
 const MAX_EDGE = 1024;
 const THUMB_EDGE = 256;
@@ -80,7 +81,31 @@ async function processItemUpload(buffer, profileId, itemId) {
   // 4. Attributes via BLIP-2 (stub fallback when unset). Hint the category from
   //    aspect ratio: clearly tall garments are more likely bottoms/full-length.
   const categoryHint = meta.height > meta.width * 1.4 ? "bottom" : undefined;
-  const { attributes, available } = await blip2.captionImage(nobgPng, { categoryHint });
+  let { attributes, available } = await blip2.captionImage(nobgPng, { categoryHint });
+
+  // 4b. Second-layer accuracy check with OpenAI vision (when a key is set). This
+  //     runs ON TOP of the CLIP model — not a fallback — to catch and correct
+  //     miscategorized items and wrong colors. Best-effort: any failure (no key,
+  //     bad key, API error) keeps the CLIP result so uploads never break.
+  try {
+    const small = await sharp(nobgPng)
+      .resize({ width: 768, height: 768, fit: "inside", withoutEnlargement: true })
+      .flatten({ background: "#ffffff" })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    const corrected = await aiVision.verifyItemAttributes({
+      imageBase64: small.toString("base64"),
+      mimeType: "image/jpeg",
+      current: attributes,
+    });
+    if (corrected) {
+      // Coerce + merge corrections over the CLIP result (only valid fields win).
+      attributes = blip2.normalizeAttributes(corrected, attributes);
+      available = true;
+    }
+  } catch (err) {
+    console.warn("[wardrobeImage] vision verify skipped:", err.message);
+  }
 
   return {
     files: {

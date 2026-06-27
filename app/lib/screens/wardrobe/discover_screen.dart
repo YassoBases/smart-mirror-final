@@ -7,6 +7,7 @@ import '../../models/profile.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
 import '../../widgets/connection_error_view.dart';
+import 'generations_gallery_screen.dart';
 import 'wardrobe_home_screen.dart' show parseHexColor;
 
 // "Discover" tab: the AI invents brand-new outfit ideas (not from the closet),
@@ -185,6 +186,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         elevation: 0,
         title: const Text('Discover',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(
+            tooltip: 'My Looks',
+            icon: const Icon(Icons.photo_library_outlined, color: Colors.white),
+            onPressed: _openGallery,
+          ),
+        ],
       ),
       body: SafeArea(child: _body()),
     );
@@ -263,6 +271,40 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     );
   }
 
+  void _openGallery() {
+    final id = _selectedProfile?.id;
+    if (id == null) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => GenerationsGalleryScreen(profileId: id),
+    ));
+  }
+
+  // Big "this is you wearing it" image at the top of a candidate, when the
+  // outfit was rendered onto the body photo.
+  Widget _tryOnHero(GeneratedCandidate candidate) {
+    final url = candidate.tryOnUrl;
+    if (url == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          loadingBuilder: (_, child, progress) => progress == null
+              ? child
+              : Container(
+                  height: 320,
+                  color: Colors.white10,
+                  child: const Center(
+                      child: CircularProgressIndicator(color: Colors.white24)),
+                ),
+          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        ),
+      ),
+    );
+  }
+
   Widget _candidateView() {
     final candidate = _current!;
     return ListView(
@@ -272,6 +314,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         const SizedBox(height: 12),
         _contextChips(),
         const SizedBox(height: 16),
+        _tryOnHero(candidate),
         ...candidate.items.map(_itemCard),
         const SizedBox(height: 8),
         if (candidate.reasoning.isNotEmpty)

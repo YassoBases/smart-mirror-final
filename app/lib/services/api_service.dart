@@ -635,6 +635,30 @@ class ApiService {
     return (renderUrl: renderUrl, fromCache: fromCache);
   }
 
+  // Saved gallery of generated outfit try-ons ("render on me"), newest first.
+  Future<List<Generation>> listGenerations(int profileId,
+      {int limit = 50, int offset = 0}) async {
+    final res = await http.get(
+      Uri.parse(
+          '${ApiConfig.baseUrl}/profiles/$profileId/outfit/generations?limit=$limit&offset=$offset'),
+      headers: _headers,
+    );
+    final body = _parse(res) as Map<String, dynamic>;
+    final List raw = body['generations'] as List? ?? [];
+    return raw
+        .map((g) => Generation.fromJson(Map<String, dynamic>.from(g as Map)))
+        .toList();
+  }
+
+  Future<void> deleteGeneration(int profileId, int generationId) async {
+    final res = await http.delete(
+      Uri.parse(
+          '${ApiConfig.baseUrl}/profiles/$profileId/outfit/generations/$generationId'),
+      headers: _headers,
+    );
+    _parse(res);
+  }
+
   // ── Outfit feedback ──────────────────────────────────────────────────────────
 
   Future<void> sendOutfitFeedback(

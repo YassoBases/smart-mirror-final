@@ -359,6 +359,22 @@ async function renderOutfit(req, res, next) {
 
 // ── Outfit generation (new ideas, not from the closet) ────────────────────────
 
+// Per-image budget for outfit-idea previews. Image gen is best-effort, so any
+// single image that can't finish in this window degrades to a concept card
+// rather than holding up the whole /generate response.
+const IMAGE_GEN_BUDGET_MS = 20000;
+
+// Resolves to the promise's value, or rejects after `ms` so a hung/slow call
+// (e.g. a throttled Replicate poll) can't block the caller indefinitely.
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("image gen timed out")), ms),
+    ),
+  ]);
+}
+
 // Builds a Google Shopping search URL from a free-text item description so the
 // phone can open real "where to buy" results (no product API/key needed).
 function shoppingSearchUrl(item) {
@@ -368,6 +384,60 @@ function shoppingSearchUrl(item) {
       .filter(Boolean)
       .join(" ");
   return `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(q || "outfit")}`;
+}
+
+// Per-try-on budget (flux-kontext edits take ~15-20s; allow headroom). A render
+// that exceeds it degrades that candidate to "no try-on image" rather than
+// hanging the response.
+const TRYON_BUDGET_MS = 45000;
+
+// Builds the image-edit instruction for "render on me": describe the whole
+// outfit and insist the person + background stay identical.
+function buildTryOnPrompt(items) {
+  const pieces = items
+    .map(
+      (it) =>
+        (it.description && it.description.trim()) ||
+        [it.primaryColor, it.subcategory || it.category].filter(Boolean).join(" "),
+    )
+    .filter(Boolean);
+  return (
+    "Change only the clothing on the person to this complete outfit: " +
+    pieces.join("; ") +
+    ". Keep the exact same face, hair and any headwear, body shape, pose, camera " +
+    "angle, lighting and background unchanged. Photorealistic, natural fit."
+  );
+}
+
+// Short human label for the gallery, e.g. "blazer · shirt · trousers · loafers".
+function outfitTitle(items) {
+  return items
+    .map((it) => it.subcategory || it.category)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" · ");
+}
+
+// Renders one generated outfit onto the user's body photo (flux-kontext) and
+// saves it to the gallery. Sets cnd.tryOnUrl + cnd.generationId on success.
+async function renderTryOnForCandidate(req, db, profileId, bodyUrl, cnd, context, apiToken, model) {
+  const prompt = buildTryOnPrompt(cnd.items);
+  const outUrl = await replicate.editImage({ imageUrl: bodyUrl, prompt, apiToken, model });
+  const r = await fetch(outUrl);
+  const buf = Buffer.from(await r.arrayBuffer());
+  const dir = wardrobeDb.ensureDir(wardrobeDb.generationsDir(profileId));
+  const filename = `${crypto.randomUUID()}.jpg`;
+  fs.writeFileSync(path.join(dir, filename), buf);
+  const id = await wardrobeDb.insertGeneration(db, profileId, {
+    kind: "generated_tryon",
+    title: outfitTitle(cnd.items),
+    prompt,
+    items: cnd.items,
+    context,
+    filename,
+  });
+  cnd.generationId = id;
+  cnd.tryOnUrl = `${serverRoot(req)}/wardrobe/${profileId}/generations/${filename}`;
 }
 
 // Generates a preview image for one item and stores it under the profile's
@@ -420,24 +490,21 @@ async function generateOutfit(req, res, next) {
       return res.status(502).json({ error: "Could not generate outfits right now." });
     }
 
-    // Render a preview image per item and attach a shopping link. Image gen is
-    // best-effort — items keep their attributes + link even if no image returns.
     const apiToken = await settings.getSetting("replicate_api_token", process.env.REPLICATE_API_TOKEN);
-    const model = await settings.getSetting("replicate_txt2img_model", process.env.REPLICATE_TXT2IMG_MODEL);
     const canImage = !!apiToken || replicate.isImageGenConfigured();
 
+    // Shopping links are synchronous and always attached.
     for (const cnd of candidates) {
       cnd.items = Array.isArray(cnd.items) ? cnd.items : [];
       for (const item of cnd.items) {
         item.searchUrl = shoppingSearchUrl(item);
-        item.imageUrl = canImage
-          ? await generateItemImage(req, profileId, item.imagePrompt, apiToken, model)
-          : null;
+        item.imageUrl = null;
       }
+      cnd.tryOnUrl = null;
     }
 
-    // Re-rank generated candidates by the profile's learned style (attribute-based
-    // ranker — no closet ids needed).
+    // Re-rank BEFORE rendering, so we only spend image-edit credit on the order
+    // the user will actually see.
     try {
       const scoreInput = candidates.map((cnd) => ({ item_ids: [], items: cnd.items }));
       const scores = await prefClient.score(profileId, scoreInput, context);
@@ -451,7 +518,103 @@ async function generateOutfit(req, res, next) {
       console.warn("[wardrobe] generate re-rank failed:", err.message);
     }
 
+    // Primary path: render each outfit ONTO the user's body photo (flux-kontext)
+    // and save it to the gallery — "see yourself wearing it". Needs a body photo
+    // and a PUBLIC origin Replicate can fetch it from. Runs in parallel, each
+    // time-boxed, best-effort: a failed/throttled render leaves that candidate
+    // without a try-on image rather than hanging the response.
+    const bodyFilename = await wardrobeDb.getBodyPhotoFilename(db, profileId);
+    const publicBase =
+      (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) ||
+      publicRoot(req);
+    const editModel = await settings.getSetting(
+      "replicate_img_edit_model",
+      process.env.REPLICATE_IMG_EDIT_MODEL,
+    );
+
+    if (canImage && bodyFilename) {
+      const bodyUrl = `${publicBase.replace(/\/$/, "")}/wardrobe/${profileId}/body/${bodyFilename}`;
+      await Promise.allSettled(
+        candidates.map((cnd) =>
+          withTimeout(
+            renderTryOnForCandidate(req, db, profileId, bodyUrl, cnd, context, apiToken, editModel),
+            TRYON_BUDGET_MS,
+          ).catch((err) =>
+            console.warn(`[wardrobe] try-on render failed: ${err.message}`),
+          ),
+        ),
+      );
+    } else if (canImage) {
+      // Fallback when no body photo is set: per-item product previews on white,
+      // so the feature still works (degrades to concept cards on failure).
+      const txtModel = await settings.getSetting(
+        "replicate_txt2img_model",
+        process.env.REPLICATE_TXT2IMG_MODEL,
+      );
+      const jobs = [];
+      for (const cnd of candidates) {
+        for (const item of cnd.items) {
+          jobs.push(
+            withTimeout(
+              generateItemImage(req, profileId, item.imagePrompt, apiToken, txtModel),
+              IMAGE_GEN_BUDGET_MS,
+            )
+              .then((url) => {
+                item.imageUrl = url;
+              })
+              .catch(() => {
+                item.imageUrl = null;
+              }),
+          );
+        }
+      }
+      await Promise.allSettled(jobs);
+    }
+
     res.json({ candidates, context });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Saved generations gallery ─────────────────────────────────────────────────
+
+async function listGenerationsRoute(req, res, next) {
+  try {
+    const db = await getDb();
+    const q = req.query || {};
+    const limit = Math.min(Number(q.limit) || 50, 100);
+    const offset = Number(q.offset) || 0;
+    const rows = await wardrobeDb.listGenerations(db, req.wardrobeProfileId, {
+      limit,
+      offset,
+    });
+    res.json({
+      generations: rows.map((r) => wardrobeDb.serializeGeneration(r, serverRoot(req))),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deleteGenerationRoute(req, res, next) {
+  try {
+    const db = await getDb();
+    const id = Number(req.params.id);
+    const row = await wardrobeDb.getGeneration(db, id);
+    if (!row || row.profile_id !== req.wardrobeProfileId) {
+      return res.status(404).json({ error: "Generation not found" });
+    }
+    // Best-effort: delete the saved image file alongside the row.
+    try {
+      fs.unlinkSync(
+        path.join(wardrobeDb.generationsDir(req.wardrobeProfileId), row.image_filename),
+      );
+    } catch {
+      /* file already gone — ignore */
+    }
+    await wardrobeDb.deleteGeneration(db, id);
+    res.status(204).end();
   } catch (err) {
     next(err);
   }
@@ -601,6 +764,8 @@ module.exports = {
   suggestOutfit,
   generateOutfit,
   renderOutfit,
+  listGenerations: listGenerationsRoute,
+  deleteGeneration: deleteGenerationRoute,
   postFeedback,
   getFeedback,
   getContext: getContextRoute,

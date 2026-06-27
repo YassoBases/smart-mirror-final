@@ -10,10 +10,12 @@
 
 const {
   SYSTEM_PROMPT,
+  RESPONSE_SCHEMA,
   buildUserPrompt,
 } = require("./outfit_prompt");
 const {
   GENERATE_SYSTEM_PROMPT,
+  GENERATE_RESPONSE_SCHEMA,
   buildGenerateUserPrompt,
 } = require("./outfit_generate_prompt");
 const settings = require("../src/services/settingsService");
@@ -39,7 +41,12 @@ async function isConfigured() {
   return !!(await resolveKey());
 }
 
-async function _chatJson(systemPrompt, userPrompt, maxTokens) {
+// Calls Chat Completions and returns the parsed JSON. When `schema` is given we
+// use Structured Outputs (response_format json_schema, strict) so the model is
+// FORCED to return exactly that shape — plain json_object only guarantees valid
+// JSON, and gpt-4o will otherwise invent its own keys (e.g. "outfits"/"items"
+// instead of "candidates"/"itemIds"), which silently parses to no candidates.
+async function _chatJson(systemPrompt, userPrompt, maxTokens, schema, schemaName) {
   const key = await resolveKey();
   if (!key) {
     throw Object.assign(new Error("OPENAI_API_KEY not configured"), {
@@ -47,6 +54,9 @@ async function _chatJson(systemPrompt, userPrompt, maxTokens) {
     });
   }
   const model = await resolveModel();
+  const response_format = schema
+    ? { type: "json_schema", json_schema: { name: schemaName, strict: true, schema } }
+    : { type: "json_object" };
   const res = await fetch(API_URL, {
     method: "POST",
     headers: {
@@ -59,7 +69,7 @@ async function _chatJson(systemPrompt, userPrompt, maxTokens) {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      response_format: { type: "json_object" }, // strict JSON object
+      response_format,
       temperature: 0.7,
       max_tokens: maxTokens,
     }),
@@ -85,6 +95,8 @@ async function suggestOutfits({ items, context, count = 3 }) {
     SYSTEM_PROMPT,
     buildUserPrompt({ items, context, count }),
     2048,
+    RESPONSE_SCHEMA,
+    "outfit_suggestions",
   );
   return { candidates: Array.isArray(parsed.candidates) ? parsed.candidates : [] };
 }
@@ -97,13 +109,106 @@ async function generateOutfits({ context, count = 3 }) {
     GENERATE_SYSTEM_PROMPT,
     buildGenerateUserPrompt({ context, count }),
     3072,
+    GENERATE_RESPONSE_SCHEMA,
+    "outfit_ideas",
   );
   return { candidates: Array.isArray(parsed.candidates) ? parsed.candidates : [] };
+}
+
+// ── Vision QC layer ─────────────────────────────────────────────────────────
+// Second-pass garment classifier. Shows the multimodal model the ACTUAL image
+// plus the local CLIP model's guess, and asks it to correct category/
+// subcategory/colors/pattern when the image contradicts them. This runs IN
+// ADDITION to CLIP (not a fallback): CLIP is fast/local, this is the accuracy
+// check on top. Returns the raw corrected attributes (the caller coerces+merges
+// via blip2.normalizeAttributes) or null when no OpenAI key is configured / the
+// verify toggle is off — in which case the caller keeps the CLIP result.
+
+const VISION_SYSTEM_PROMPT =
+  "You are a meticulous fashion cataloguer running a quality-control pass on an " +
+  "automated garment classifier. You are shown ONE garment photo (its background " +
+  "may be removed/white) and the classifier's current guess. Look closely at the " +
+  "image and return the CORRECT attributes. Keep a field unchanged when the guess " +
+  "is already right; only change it when the image clearly contradicts it. Rules:\n" +
+  '- "category" MUST be exactly one of: top, bottom, outerwear, footwear, accessory.\n' +
+  '- "subcategory": a short common noun for the garment (e.g. "t-shirt", "jeans", ' +
+  '"sneakers", "denim jacket", "watch").\n' +
+  '- "primaryColor" and each of "secondaryColors": a hex string like "#1A2B3C", ' +
+  "sampled from the garment itself — ignore the background and any white padding.\n" +
+  '- "pattern" MUST be exactly one of: solid, stripe, plaid, print, other.\n' +
+  "Return ONLY a JSON object with keys category, subcategory, primaryColor, " +
+  "secondaryColors (array of hex strings), pattern.";
+
+/**
+ * @param {{ imageBase64: string, mimeType?: string, current?: object }} args
+ * @returns {Promise<object|null>} raw corrected attributes, or null (keep CLIP)
+ */
+async function verifyItemAttributes({ imageBase64, mimeType = "image/jpeg", current = {} }) {
+  // Toggle: app_settings.wardrobe_vision_verify -> WARDROBE_VISION_VERIFY env -> on.
+  const toggle = await settings.getSetting(
+    "wardrobe_vision_verify",
+    process.env.WARDROBE_VISION_VERIFY ?? "1",
+  );
+  if (toggle === "0" || toggle === false || toggle === "false") return null;
+
+  const key = await resolveKey();
+  if (!key) return null; // not configured — caller keeps the CLIP result
+  const model = await resolveModel();
+
+  const userText =
+    "The local classifier guessed these attributes for the garment in the image:\n" +
+    JSON.stringify({
+      category: current.category,
+      subcategory: current.subcategory,
+      primaryColor: current.primaryColor,
+      secondaryColors: current.secondaryColors,
+      pattern: current.pattern,
+    }) +
+    "\n\nVerify against the image and return the corrected JSON.";
+
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: VISION_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            {
+              type: "image_url",
+              image_url: { url: `data:${mimeType};base64,${imageBase64}` },
+            },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: 400,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`OpenAI vision ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const content =
+    data.choices && data.choices[0] && data.choices[0].message
+      ? data.choices[0].message.content
+      : null;
+  if (!content) throw new Error("OpenAI vision returned no content");
+  return JSON.parse(content);
 }
 
 module.exports = {
   suggestOutfits,
   generateOutfits,
+  verifyItemAttributes,
   isConfigured,
   resolveKey,
   MODEL: DEFAULT_MODEL,

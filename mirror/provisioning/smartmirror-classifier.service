@@ -1,0 +1,18 @@
+[Unit]
+Description=Smart Mirror Garment Classifier (CLIP-heads, HTTP :8003)
+# Local clothing-attribute model that the backend calls (BLIP2_ENDPOINT_URL).
+# Must be up before/alongside the backend so uploads are classified correctly;
+# when it's down the backend falls back to a stub that labels everything "top".
+After=network.target
+
+[Service]
+Type=simple
+User=smartmirror
+WorkingDirectory=/home/smartmirror/smart-mirror-final/mirror/services/blip2_captioner
+Environment=BLIP2_MODEL_DIR=./clip_attr_model,./clip_attr_dfmm
+ExecStart=/home/smartmirror/smart-mirror-final/mirror/services/blip2_captioner/.venv/bin/python -m uvicorn serve_clip:app --host 0.0.0.0 --port 8003
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -7,6 +7,12 @@
 
 const PREF_RANKER_URL = process.env.PREF_RANKER_URL || "";
 
+// Cap how long we wait on the sidecar. It's a best-effort re-rank in the request
+// path, so a slow/unreachable ranker must NOT hold up suggestions. Without this,
+// an unresolvable host (e.g. the docker service name `pref_ranker` under systemd)
+// hangs ~10s on DNS before failing — felt by the app as a frozen request.
+const SCORE_TIMEOUT_MS = 2500;
+
 function isConfigured() {
   return !!PREF_RANKER_URL;
 }
@@ -29,6 +35,7 @@ async function score(profileId, candidates, context) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ profile_id: profileId, candidates, context }),
+      signal: AbortSignal.timeout(SCORE_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -65,7 +72,7 @@ async function train(profileId, samples = []) {
 async function health() {
   if (!PREF_RANKER_URL) return null;
   try {
-    const res = await fetch(url("/health"));
+    const res = await fetch(url("/health"), { signal: AbortSignal.timeout(SCORE_TIMEOUT_MS) });
     if (!res.ok) return null;
     return res.json();
   } catch {

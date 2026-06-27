@@ -99,6 +99,25 @@ async function initWardrobeSchema(db) {
   await db
     .run(`ALTER TABLE outfit_feedback ADD COLUMN items_snapshot TEXT`)
     .catch(() => {});
+
+  // Saved gallery of generated outfit try-ons ("render on me"): each row is one
+  // image of the user wearing an invented outfit, kept so it can be viewed later.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS wardrobe_generations (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id      INTEGER NOT NULL,
+      kind            TEXT NOT NULL DEFAULT 'generated_tryon',
+      title           TEXT,             -- short outfit summary
+      prompt          TEXT,             -- the image-edit instruction used
+      items_snapshot  TEXT,             -- JSON: the outfit items (attrs + searchUrl)
+      context         TEXT,             -- JSON: occasion/weather context
+      image_filename  TEXT NOT NULL,    -- file under generations/
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_wardrobe_generations_profile
+      ON wardrobe_generations(profile_id, created_at DESC);
+  `);
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -114,6 +133,9 @@ function rendersDir(profileId) {
 }
 function generatedDir(profileId) {
   return path.join(WARDROBE_DATA_DIR, String(profileId), "generated");
+}
+function generationsDir(profileId) {
+  return path.join(WARDROBE_DATA_DIR, String(profileId), "generations");
 }
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -361,6 +383,59 @@ async function insertRender(db, profileId, itemIds, bodyHash, filename) {
   );
 }
 
+// ── Saved generations (gallery) ───────────────────────────────────────────────
+
+async function insertGeneration(db, profileId, { kind = "generated_tryon", title, prompt, items, context, filename }) {
+  const res = await db.run(
+    `INSERT INTO wardrobe_generations
+       (profile_id, kind, title, prompt, items_snapshot, context, image_filename)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    profileId,
+    kind,
+    title || null,
+    prompt || null,
+    items ? JSON.stringify(items) : null,
+    context ? JSON.stringify(context) : null,
+    filename,
+  );
+  return res.lastID;
+}
+
+async function listGenerations(db, profileId, { limit = 50, offset = 0 } = {}) {
+  return db.all(
+    `SELECT * FROM wardrobe_generations
+       WHERE profile_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ? OFFSET ?`,
+    profileId,
+    limit,
+    offset,
+  );
+}
+
+async function getGeneration(db, id) {
+  return db.get("SELECT * FROM wardrobe_generations WHERE id = ?", id);
+}
+
+async function deleteGeneration(db, id) {
+  await db.run("DELETE FROM wardrobe_generations WHERE id = ?", id);
+}
+
+// Shapes a generation row into the API/gallery JSON (builds the served image URL
+// the same way serializeItem does).
+function serializeGeneration(row, serverRoot) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    prompt: row.prompt,
+    items: parseJsonArray(row.items_snapshot),
+    context: row.context ? JSON.parse(row.context) : null,
+    imageUrl: `${serverRoot}/wardrobe/${row.profile_id}/generations/${row.image_filename}`,
+    createdAt: row.created_at,
+  };
+}
+
 // ── Pref model metadata ───────────────────────────────────────────────────────
 
 async function getPrefModel(db, profileId) {
@@ -388,6 +463,7 @@ module.exports = {
   bodyDir,
   rendersDir,
   generatedDir,
+  generationsDir,
   ensureDir,
   // serialization
   serializeItem,
@@ -411,6 +487,12 @@ module.exports = {
   renderKey,
   getCachedRender,
   insertRender,
+  // saved generations (gallery)
+  insertGeneration,
+  listGenerations,
+  getGeneration,
+  deleteGeneration,
+  serializeGeneration,
   // pref model
   getPrefModel,
   markPrefModelTrained,

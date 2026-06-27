@@ -63,12 +63,20 @@ class GeneratedCandidate {
   final List<GeneratedItem> items;
   final String reasoning;
   final double confidence;
+  // The outfit rendered onto the user's body photo ("render on me"), and the id
+  // of its saved gallery entry. Null when no body photo / the render failed.
+  final String? rawTryOnUrl;
+  final int? generationId;
 
   GeneratedCandidate({
     this.items = const [],
     this.reasoning = '',
     this.confidence = 0,
+    this.rawTryOnUrl,
+    this.generationId,
   });
+
+  String? get tryOnUrl => resolveServerUrl(rawTryOnUrl);
 
   factory GeneratedCandidate.fromJson(Map<String, dynamic> json) {
     final raw = firstOf(json, ['items']);
@@ -82,6 +90,50 @@ class GeneratedCandidate {
       items: items,
       reasoning: parseStringOrNull(json['reasoning']) ?? '',
       confidence: parseDouble(json['confidence']),
+      rawTryOnUrl:
+          parseStringOrNull(firstOf(json, ['tryOnUrl', 'try_on_url'])),
+      generationId:
+          parseIntOrNull(firstOf(json, ['generationId', 'generation_id'])),
+    );
+  }
+}
+
+// One saved entry in the generations gallery: the user wearing a generated
+// outfit, with a short title and the items it was made of.
+class Generation {
+  final int id;
+  final String kind;
+  final String? title;
+  final List<GeneratedItem> items;
+  final String? rawImageUrl;
+  final String? createdAt;
+
+  Generation({
+    required this.id,
+    this.kind = 'generated_tryon',
+    this.title,
+    this.items = const [],
+    this.rawImageUrl,
+    this.createdAt,
+  });
+
+  String? get imageUrl => resolveServerUrl(rawImageUrl);
+
+  factory Generation.fromJson(Map<String, dynamic> json) {
+    final raw = firstOf(json, ['items']);
+    final items = raw is List
+        ? raw
+            .whereType<Map>()
+            .map((m) => GeneratedItem.fromJson(Map<String, dynamic>.from(m)))
+            .toList()
+        : <GeneratedItem>[];
+    return Generation(
+      id: parseIntOrNull(json['id']) ?? 0,
+      kind: parseStringOrNull(json['kind']) ?? 'generated_tryon',
+      title: parseStringOrNull(json['title']),
+      items: items,
+      rawImageUrl: parseStringOrNull(firstOf(json, ['imageUrl', 'image_url'])),
+      createdAt: parseStringOrNull(firstOf(json, ['createdAt', 'created_at'])),
     );
   }
 }

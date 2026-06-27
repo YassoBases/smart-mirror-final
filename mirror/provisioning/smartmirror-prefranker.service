@@ -1,0 +1,17 @@
+[Unit]
+Description=Smart Mirror Preference Ranker (LightGBM, HTTP :8002)
+# Learns each profile's style from up/down feedback and re-ranks outfit
+# candidates. The backend calls it via PREF_RANKER_URL; when it's down the
+# candidates simply keep the stylist's original order.
+After=network.target
+
+[Service]
+Type=simple
+User=smartmirror
+WorkingDirectory=/home/smartmirror/smart-mirror-final/mirror/services/pref_ranker
+ExecStart=/home/smartmirror/smart-mirror-final/mirror/services/pref_ranker/.venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8002
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
