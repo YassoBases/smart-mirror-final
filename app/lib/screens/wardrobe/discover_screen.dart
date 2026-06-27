@@ -38,6 +38,13 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   int _index = 0;
   String _occasion = kOccasions.first; // "any"
   final Set<int> _ratedIndexes = {};
+  bool _generated = false; // a generation has completed at least once
+
+  // Per-candidate on-demand "see it on me" render state, keyed by candidate index.
+  final Map<int, String> _renderedUrls = {}; // index → rendered image URL
+  final Set<int> _rendering = {}; // indexes currently rendering
+  final Map<int, String> _renderErrors = {}; // index → error message
+  final Set<int> _needBodyPhoto = {}; // indexes that failed with "no body photo"
 
   @override
   void initState() {
@@ -100,7 +107,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         _context = result.context;
         _index = 0;
         _ratedIndexes.clear();
+        _clearRenderState();
         _loading = false;
+        _generated = true;
       });
     } on ApiException catch (e) {
       if (mounted) {
@@ -257,8 +266,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         const SizedBox(height: 16),
         Text(
           _error ??
-              'Generate brand-new outfit ideas to shop for, tuned to the '
-                  'weather and your chosen occasion.',
+              (_generated
+                  ? 'No outfit ideas came back this time. Tap below to try again.'
+                  : 'Generate brand-new outfit ideas to shop for, tuned to the '
+                      'weather and your chosen occasion.'),
           textAlign: TextAlign.center,
           style: TextStyle(
             color: _error != null ? Colors.redAccent : Colors.white54,
@@ -279,11 +290,58 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     ));
   }
 
-  // Big "this is you wearing it" image at the top of a candidate, when the
-  // outfit was rendered onto the body photo.
-  Widget _tryOnHero(GeneratedCandidate candidate) {
-    final url = candidate.tryOnUrl;
-    if (url == null) return const SizedBox.shrink();
+  void _clearRenderState() {
+    _renderedUrls.clear();
+    _rendering.clear();
+    _renderErrors.clear();
+    _needBodyPhoto.clear();
+  }
+
+  // Renders the current outfit "on me" on demand: the backend image-conditions
+  // the body photo with the suggested garments and saves it to My Looks.
+  Future<void> _renderOnMe() async {
+    final id = _selectedProfile?.id;
+    final candidate = _current;
+    final index = _index;
+    if (id == null || candidate == null || _rendering.contains(index)) return;
+    setState(() {
+      _rendering.add(index);
+      _renderErrors.remove(index);
+      _needBodyPhoto.remove(index);
+    });
+    try {
+      final res = await _api.renderGeneratedOutfit(
+        id,
+        items: candidate.items,
+        reasoning: candidate.reasoning,
+        context: _context,
+      );
+      if (!mounted) return;
+      setState(() {
+        _rendering.remove(index);
+        if (res.tryOnUrl.isNotEmpty) _renderedUrls[index] = res.tryOnUrl;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _rendering.remove(index);
+        if (e.statusCode == 400) {
+          _needBodyPhoto.add(index);
+        } else {
+          _renderErrors[index] = e.message;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _rendering.remove(index);
+        _renderErrors[index] = 'Connection error — could not render this outfit';
+      });
+    }
+  }
+
+  // "This is you wearing it" image once a render has completed.
+  Widget _tryOnHero(String url) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: ClipRRect(
@@ -314,7 +372,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         const SizedBox(height: 12),
         _contextChips(),
         const SizedBox(height: 16),
-        _tryOnHero(candidate),
+        _renderSection(),
         ...candidate.items.map(_itemCard),
         const SizedBox(height: 8),
         if (candidate.reasoning.isNotEmpty)
@@ -327,6 +385,92 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         const SizedBox(height: 12),
         Center(child: _generateButton(label: 'Generate again')),
       ],
+    );
+  }
+
+  // The on-demand "see it on me" area: rendered image, spinner, error, the
+  // add-body-photo hint, or the trigger button — depending on this candidate's
+  // render state.
+  Widget _renderSection() {
+    final url = _renderedUrls[_index];
+    if (url != null) return _tryOnHero(url);
+
+    if (_rendering.contains(_index)) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        height: 200,
+        decoration: BoxDecoration(
+          color: Colors.white10,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white24),
+              SizedBox(height: 12),
+              Text('Putting this outfit on you…',
+                  style: TextStyle(color: Colors.white54)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _renderOnMe,
+              icon: const Icon(Icons.checkroom),
+              label: const Text('See it on me'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+          if (_needBodyPhoto.contains(_index)) ...[
+            const SizedBox(height: 12),
+            _bodyPhotoHint(),
+          ],
+          if (_renderErrors.containsKey(_index)) ...[
+            const SizedBox(height: 12),
+            Text(_renderErrors[_index]!,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                textAlign: TextAlign.center),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // Shown only when a render failed because the profile has no body photo.
+  Widget _bodyPhotoHint() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.info_outline, color: Colors.white54, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Add a body photo (Closet → Body photo) to see this outfit '
+              'rendered on you.',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -449,6 +593,9 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
               _candidates = [];
               _index = 0;
               _ratedIndexes.clear();
+              _clearRenderState();
+              _generated = false;
+              _error = null;
             });
           },
         ),

@@ -59,6 +59,31 @@ const renderSchema = z
   .object({ itemIds: z.array(z.number().int().positive()).min(1).max(10) })
   .strip();
 
+// Item shape echoed back by the app to render a generated outfit "on me".
+// Carries enough to (a) generate a product image per garment and (b) describe
+// the outfit in the edit prompt.
+const genRenderItemSchema = z
+  .object({
+    category: z.string().max(40),
+    subcategory: z.string().max(120).optional().nullable(),
+    primaryColor: z.string().max(40).optional().nullable(),
+    pattern: z.string().max(40).optional().nullable(),
+    description: z.string().max(400).optional().nullable(),
+    formality: z.number().int().min(1).max(5).optional(),
+    warmth: z.number().int().min(1).max(5).optional(),
+    seasons: z.array(SEASON).max(4).optional(),
+  })
+  .strip();
+
+// POST /outfit/generate/render — render a generated outfit onto the body photo.
+const generateRenderSchema = z
+  .object({
+    items: z.array(genRenderItemSchema).min(1).max(8),
+    reasoning: z.string().max(2000).optional().nullable(),
+    context: z.record(z.string(), z.unknown()).optional().nullable(),
+  })
+  .strip();
+
 // Attribute snapshot of a generated item, used for generated-outfit feedback.
 const genItemSchema = z
   .object({
@@ -117,6 +142,7 @@ module.exports = {
   suggestSchema,
   generateSchema,
   renderSchema,
+  generateRenderSchema,
   feedbackSchema,
   feedbackListQuerySchema,
 };

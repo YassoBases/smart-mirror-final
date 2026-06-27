@@ -57,6 +57,19 @@ class GeneratedItem {
         if (warmth != null) 'warmth': warmth,
         'seasons': seasons,
       };
+
+  // Payload echoed back to render this outfit "on me": carries the description
+  // (used to generate each garment's product image) plus attributes.
+  Map<String, dynamic> toRenderJson() => {
+        'category': category,
+        if (subcategory != null) 'subcategory': subcategory,
+        if (primaryColor != null) 'primaryColor': primaryColor,
+        if (pattern != null) 'pattern': pattern,
+        if (description != null) 'description': description,
+        if (formality != null) 'formality': formality,
+        if (warmth != null) 'warmth': warmth,
+        'seasons': seasons,
+      };
 }
 
 class GeneratedCandidate {

@@ -34,7 +34,9 @@ const clamp01 = (value) => Math.min(Math.max(value, 0), 1);
 const FPS_SMOOTHING = 0.9;
 
 const FACE_MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
-const FACE_DETECT_INTERVAL_MS = 1500;
+// Sample faster than the old 1.5s so a brief look at the mirror is caught and
+// profile switches feel responsive. Still light enough for a Pi at inputSize 320.
+const FACE_DETECT_INTERVAL_MS = 700;
 
 const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, enabled }) => {
   const videoRef = useRef(null);
@@ -114,7 +116,7 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
 
         try {
           const detection = await faceapi
-            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
             .withFaceLandmarks(true)
             .withFaceDescriptor();
 

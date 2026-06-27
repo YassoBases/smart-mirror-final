@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:camera/camera.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,6 +35,7 @@ class _BodyPhotoScreenState extends State<BodyPhotoScreen> {
   String? _existingPhotoUrl; // currently stored photo, if any
 
   String? _capturedPath; // frozen still awaiting confirmation
+  bool _pickedFromGallery = false; // captured path came from the gallery picker
   bool _uploading = false;
   String? _uploadError;
   bool _savedAny = false; // did this session store a photo
@@ -150,13 +152,53 @@ class _BodyPhotoScreenState extends State<BodyPhotoScreen> {
     if (ctrl == null || !ctrl.value.isInitialized || _uploading) return;
     try {
       final XFile photo = await ctrl.takePicture();
-      if (mounted) setState(() => _capturedPath = photo.path);
+      if (mounted) {
+        setState(() {
+          _capturedPath = photo.path;
+          _pickedFromGallery = false;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _cameraError = 'Capture failed: $e');
     }
   }
 
-  void _retake() => setState(() => _capturedPath = null);
+  // Pick an existing full-body photo from the device gallery instead of taking
+  // one. Releases the camera and shows the picked image for confirmation, then
+  // reuses the same upload path as a captured photo.
+  Future<void> _pickFromGallery() async {
+    if (_uploading) return;
+    XFile? file;
+    try {
+      file = await ImagePicker().pickImage(source: ImageSource.gallery);
+    } catch (e) {
+      if (mounted) setState(() => _uploadError = 'Could not open gallery: $e');
+      return;
+    }
+    if (file == null || !mounted) return;
+    // No camera needed while reviewing a picked image.
+    _controller?.dispose();
+    _controller = null;
+    _cameraReady = false;
+    setState(() {
+      _capturing = true;
+      _capturedPath = file!.path;
+      _pickedFromGallery = true;
+      _cameraError = null;
+      _uploadError = null;
+    });
+  }
+
+  void _retake() {
+    // Re-opening the gallery is the natural "retake" when the image was picked,
+    // since the camera was released. Keep the current image until a new one is
+    // chosen so a cancelled pick doesn't leave a blank screen.
+    if (_pickedFromGallery) {
+      _pickFromGallery();
+      return;
+    }
+    setState(() => _capturedPath = null);
+  }
 
   Future<void> _usePhoto() async {
     final path = _capturedPath;
@@ -171,6 +213,7 @@ class _BodyPhotoScreenState extends State<BodyPhotoScreen> {
       setState(() {
         _existingPhotoUrl = url.isEmpty ? _existingPhotoUrl : url;
         _capturedPath = null;
+        _pickedFromGallery = false;
         _capturing = false;
         _savedAny = true;
       });
@@ -193,6 +236,7 @@ class _BodyPhotoScreenState extends State<BodyPhotoScreen> {
     setState(() {
       _capturing = true;
       _capturedPath = null;
+      _pickedFromGallery = false;
       _uploadError = null;
     });
     _initializeCamera();
@@ -278,21 +322,42 @@ class _BodyPhotoScreenState extends State<BodyPhotoScreen> {
           ),
         Padding(
           padding: const EdgeInsets.all(20),
-          child: SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: _startReplace,
-              icon: const Icon(Icons.camera_alt),
-              label: Text(
-                  _existingPhotoUrl == null ? 'Take photo' : 'Replace photo'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+          child: Column(
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _startReplace,
+                  icon: const Icon(Icons.camera_alt),
+                  label: Text(_existingPhotoUrl == null
+                      ? 'Take photo'
+                      : 'Replace photo'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: _uploading ? null : _pickFromGallery,
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Upload from gallery'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white54),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -452,18 +517,31 @@ class _BodyPhotoScreenState extends State<BodyPhotoScreen> {
 
     return Padding(
       padding: const EdgeInsets.all(20),
-      child: GestureDetector(
-        onTap: _cameraReady ? _capture : null,
-        child: Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white,
-            border: Border.all(color: Colors.white54, width: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: _cameraReady ? _capture : null,
+            child: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                border: Border.all(color: Colors.white54, width: 4),
+              ),
+              child:
+                  const Icon(Icons.camera_alt, color: Colors.black, size: 32),
+            ),
           ),
-          child: const Icon(Icons.camera_alt, color: Colors.black, size: 32),
-        ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: _uploading ? null : _pickFromGallery,
+            icon: const Icon(Icons.photo_library_outlined, size: 18),
+            label: const Text('Upload from gallery'),
+            style: TextButton.styleFrom(foregroundColor: Colors.white),
+          ),
+        ],
       ),
     );
   }

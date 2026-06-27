@@ -598,6 +598,34 @@ class ApiService {
     return (candidates: candidates, context: context);
   }
 
+  // Renders a generated outfit "on me" (on-demand): the backend generates a
+  // product image per garment, composites them, and image-conditions the body
+  // photo so the rendered clothes match the suggestion. Returns the rendered URL
+  // and the saved gallery entry id. Throws ApiException (400 "No body photo
+  // set", 502 render failure, 503 not configured) with the server's message.
+  Future<({String tryOnUrl, int? generationId})> renderGeneratedOutfit(
+    int profileId, {
+    required List<GeneratedItem> items,
+    String? reasoning,
+    OutfitContext? context,
+  }) async {
+    final res = await http.post(
+      Uri.parse(
+          '${ApiConfig.baseUrl}/profiles/$profileId/outfit/generate/render'),
+      headers: _headers,
+      body: jsonEncode({
+        'items': items.map((i) => i.toRenderJson()).toList(),
+        if (reasoning != null && reasoning.isNotEmpty) 'reasoning': reasoning,
+        if (context != null) 'context': context.toJson(),
+      }),
+    );
+    final body = _parse(res) as Map<String, dynamic>;
+    return (
+      tryOnUrl: (body['tryOnUrl'] ?? body['try_on_url'] ?? '').toString(),
+      generationId: body['generationId'] as int? ?? body['generation_id'] as int?,
+    );
+  }
+
   // Feedback on a generated outfit — sends the item attributes (no closet ids)
   // so the same preference model learns the user's style.
   Future<void> sendGeneratedFeedback(

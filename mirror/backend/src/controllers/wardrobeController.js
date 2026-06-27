@@ -5,6 +5,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const sharp = require("sharp");
 
 const { getDb } = require("../config/database");
 const wardrobeDb = require("../../db/wardrobe");
@@ -21,6 +22,7 @@ const {
   suggestSchema,
   generateSchema,
   renderSchema,
+  generateRenderSchema,
   feedbackSchema,
   feedbackListQuerySchema,
 } = require("../validation/wardrobe");
@@ -261,6 +263,26 @@ function itemImageUrl(root, profileId, row) {
   return row.nobg_filename ? `${base}/${row.nobg_filename}` : null;
 }
 
+// Rich, human-readable garment description for VTON — color + pattern + fabric +
+// subcategory (e.g. "navy striped cotton t-shirt"). A bare subcategory gives the
+// model almost nothing to work with, which is a top cause of weak try-on results.
+function garmentDescription(row, fallback) {
+  const parts = [
+    row.primary_color,
+    row.pattern && row.pattern !== "solid" ? row.pattern : null,
+    row.fabric_guess,
+    row.subcategory || row.category,
+  ].filter((p) => p && String(p).trim());
+  return parts.length ? parts.join(" ") : fallback;
+}
+
+// Maps a wardrobe category to the IDM-VTON garment region.
+function vtonCategory(category) {
+  if (category === "top" || category === "outerwear") return "upper_body";
+  if (category === "bottom") return "lower_body";
+  return undefined;
+}
+
 async function renderOutfit(req, res, next) {
   try {
     const { itemIds } = validate(renderSchema, req.body || {});
@@ -303,34 +325,49 @@ async function renderOutfit(req, res, next) {
     const publicBase =
       (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) || publicRoot(req);
 
+    // VTON is "configured" when we have a token (from Settings or env). When it
+    // is, a failed render is surfaced as an error rather than silently returning
+    // the unchanged body photo — that silent fallback made a broken render (e.g.
+    // an unreachable public_base_url) look like "nothing happened".
+    const vtonConfigured = !!apiToken || replicate.isConfigured();
     let finalUrl = bodyUrl;
-    if (apiToken || replicate.isConfigured()) {
+    let vtonRan = false;
+
+    if (vtonConfigured) {
+      const pub = publicBase.replace(/\/$/, "");
+      // Inputs sent to Replicate must be public; the body image starts the chain.
+      let human = `${pub}/wardrobe/${profileId}/body/${bodyFilename}`;
       try {
-        const pub = publicBase.replace(/\/$/, "");
-        // Inputs sent to Replicate must be public; the body image starts the chain.
-        let human = `${pub}/wardrobe/${profileId}/body/${bodyFilename}`;
-        if (top) {
+        for (const garment of [top, bottom].filter(Boolean)) {
+          const garmUrl = itemImageUrl(pub, profileId, garment);
+          if (!garmUrl) {
+            // No background-removed image — the garment can't be composited.
+            // Skip it (with a warning) rather than sending a null URL to Replicate.
+            console.warn(
+              `[wardrobe] item ${garment.id} has no nobg image; skipping in render`,
+            );
+            continue;
+          }
           human = await replicate.tryOn({
             humanImageUrl: human,
-            garmentImageUrl: itemImageUrl(pub, profileId, top),
-            garmentDes: top.subcategory || "top",
+            garmentImageUrl: garmUrl,
+            garmentDes: garmentDescription(garment, garment.category),
+            category: vtonCategory(garment.category),
             apiToken,
             model,
           });
-        }
-        if (bottom) {
-          human = await replicate.tryOn({
-            humanImageUrl: human,
-            garmentImageUrl: itemImageUrl(pub, profileId, bottom),
-            garmentDes: bottom.subcategory || "bottom",
-            apiToken,
-            model,
-          });
+          vtonRan = true;
         }
         finalUrl = human;
       } catch (err) {
-        console.warn("[wardrobe] VTON render failed, returning body photo:", err.message);
-        finalUrl = bodyUrl;
+        console.warn("[wardrobe] VTON render failed:", err.message);
+        return res.status(502).json({
+          error:
+            "Could not render this outfit on your photo. " +
+            "Check that the server's public image URL is reachable by Replicate " +
+            "and the VTON model/token are valid.",
+          detail: err.message,
+        });
       }
     }
 
@@ -348,6 +385,28 @@ async function renderOutfit(req, res, next) {
     }
 
     await wardrobeDb.insertRender(db, profileId, itemIds, bodyHash, filename);
+
+    // Save a successful try-on into the gallery too, so closet renders show up
+    // alongside generated outfits. Copy the image into generations/ (renders/ is a
+    // hash-keyed cache that can be evicted). Best-effort: never fail the response.
+    if (vtonRan) {
+      try {
+        const genDir = wardrobeDb.ensureDir(wardrobeDb.generationsDir(profileId));
+        const genFilename = `${crypto.randomUUID()}.jpg`;
+        fs.copyFileSync(dest, path.join(genDir, genFilename));
+        await wardrobeDb.insertGeneration(db, profileId, {
+          kind: "closet_render",
+          title: outfitTitle(rows),
+          prompt: null,
+          items: rows.map(itemMetadata),
+          context: null,
+          filename: genFilename,
+        });
+      } catch (err) {
+        console.warn("[wardrobe] gallery save for closet render failed:", err.message);
+      }
+    }
+
     res.json({
       renderUrl: `${serverRoot(req)}/wardrobe/${profileId}/renders/${filename}`,
       fromCache: false,
@@ -358,11 +417,6 @@ async function renderOutfit(req, res, next) {
 }
 
 // ── Outfit generation (new ideas, not from the closet) ────────────────────────
-
-// Per-image budget for outfit-idea previews. Image gen is best-effort, so any
-// single image that can't finish in this window degrades to a concept card
-// rather than holding up the whole /generate response.
-const IMAGE_GEN_BUDGET_MS = 20000;
 
 // Resolves to the promise's value, or rejects after `ms` so a hung/slow call
 // (e.g. a throttled Replicate poll) can't block the caller indefinitely.
@@ -386,28 +440,9 @@ function shoppingSearchUrl(item) {
   return `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(q || "outfit")}`;
 }
 
-// Per-try-on budget (flux-kontext edits take ~15-20s; allow headroom). A render
-// that exceeds it degrades that candidate to "no try-on image" rather than
-// hanging the response.
-const TRYON_BUDGET_MS = 45000;
-
-// Builds the image-edit instruction for "render on me": describe the whole
-// outfit and insist the person + background stay identical.
-function buildTryOnPrompt(items) {
-  const pieces = items
-    .map(
-      (it) =>
-        (it.description && it.description.trim()) ||
-        [it.primaryColor, it.subcategory || it.category].filter(Boolean).join(" "),
-    )
-    .filter(Boolean);
-  return (
-    "Change only the clothing on the person to this complete outfit: " +
-    pieces.join("; ") +
-    ". Keep the exact same face, hair and any headwear, body shape, pose, camera " +
-    "angle, lighting and background unchanged. Photorealistic, natural fit."
-  );
-}
+// Per-render budget (garment image gen + multi-image edit). A render that
+// exceeds it surfaces an error rather than hanging the response.
+const TRYON_BUDGET_MS = 90000;
 
 // Short human label for the gallery, e.g. "blazer · shirt · trousers · loafers".
 function outfitTitle(items) {
@@ -418,32 +453,33 @@ function outfitTitle(items) {
     .join(" · ");
 }
 
-// Renders one generated outfit onto the user's body photo (flux-kontext) and
-// saves it to the gallery. Sets cnd.tryOnUrl + cnd.generationId on success.
-async function renderTryOnForCandidate(req, db, profileId, bodyUrl, cnd, context, apiToken, model) {
-  const prompt = buildTryOnPrompt(cnd.items);
-  const outUrl = await replicate.editImage({ imageUrl: bodyUrl, prompt, apiToken, model });
-  const r = await fetch(outUrl);
-  const buf = Buffer.from(await r.arrayBuffer());
-  const dir = wardrobeDb.ensureDir(wardrobeDb.generationsDir(profileId));
-  const filename = `${crypto.randomUUID()}.jpg`;
-  fs.writeFileSync(path.join(dir, filename), buf);
-  const id = await wardrobeDb.insertGeneration(db, profileId, {
-    kind: "generated_tryon",
-    title: outfitTitle(cnd.items),
-    prompt,
-    items: cnd.items,
-    context,
-    filename,
-  });
-  cnd.generationId = id;
-  cnd.tryOnUrl = `${serverRoot(req)}/wardrobe/${profileId}/generations/${filename}`;
+// A short product-image / shopping description for one generated garment.
+function garmentDescriptionFor(item) {
+  return (
+    (item.description && item.description.trim()) ||
+    [
+      item.primaryColor,
+      item.pattern && item.pattern !== "solid" ? item.pattern : null,
+      item.subcategory || item.category,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
 }
 
-// Generates a preview image for one item and stores it under the profile's
-// generated/ dir, cached by prompt hash. Returns the served URL, or null when
-// image generation is unavailable/fails (the feature degrades to concept cards).
-async function generateItemImage(req, profileId, imagePrompt, apiToken, model) {
+// The garments worth showing in the reference image / putting on the body.
+function renderableGarments(items) {
+  return items
+    .filter((it) =>
+      ["top", "bottom", "outerwear", "footwear"].includes(it.category),
+    )
+    .slice(0, 4);
+}
+
+// Generates a product image for one garment and stores it under the profile's
+// generated/ dir, cached by prompt hash. Returns the LOCAL file path, or null
+// when generation is unavailable/fails.
+async function ensureItemImageFile(profileId, imagePrompt, apiToken, model) {
   if (!imagePrompt) return null;
   try {
     const dir = wardrobeDb.ensureDir(wardrobeDb.generatedDir(profileId));
@@ -458,10 +494,166 @@ async function generateItemImage(req, profileId, imagePrompt, apiToken, model) {
       const r = await fetch(url);
       fs.writeFileSync(dest, Buffer.from(await r.arrayBuffer()));
     }
-    return `${serverRoot(req)}/wardrobe/${profileId}/generated/${filename}`;
+    return dest;
   } catch (err) {
     console.warn("[wardrobe] generate image failed:", err.message);
     return null;
+  }
+}
+
+// Composites garment product images into a single reference sheet (white bg,
+// 2-up grid) the multi-image edit model reads. Returns the saved filename under
+// generated/.
+async function buildGarmentCollage(profileId, paths) {
+  const CELL = 512;
+  const cells = await Promise.all(
+    paths.map((p) =>
+      sharp(p)
+        .resize(CELL, CELL, { fit: "contain", background: "#ffffff" })
+        .toBuffer(),
+    ),
+  );
+  const cols = cells.length <= 1 ? 1 : 2;
+  const rows = Math.ceil(cells.length / cols);
+  const composite = cells.map((input, i) => ({
+    input,
+    left: (i % cols) * CELL,
+    top: Math.floor(i / cols) * CELL,
+  }));
+  const out = await sharp({
+    create: {
+      width: cols * CELL,
+      height: rows * CELL,
+      channels: 3,
+      background: "#ffffff",
+    },
+  })
+    .composite(composite)
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  const dir = wardrobeDb.ensureDir(wardrobeDb.generatedDir(profileId));
+  const filename = `collage_${crypto.randomUUID()}.jpg`;
+  fs.writeFileSync(path.join(dir, filename), out);
+  return filename;
+}
+
+// POST /outfit/generate/render — render ONE generated outfit onto the body photo
+// (on-demand). Generates a product image per garment, composites them, and feeds
+// body + garment reference to a multi-image edit model so the rendered clothes
+// match the suggested items. Saves the result to the gallery.
+async function renderGeneratedOutfit(req, res, next) {
+  try {
+    const { items, context } = validate(generateRenderSchema, req.body || {});
+    const profileId = req.wardrobeProfileId;
+    const db = await getDb();
+
+    // No body photo is the ONE case that should tell the app to add one.
+    const bodyFilename = await wardrobeDb.getBodyPhotoFilename(db, profileId);
+    if (!bodyFilename) {
+      return res.status(400).json({ error: "No body photo set for this profile" });
+    }
+
+    const apiToken = await settings.getSetting(
+      "replicate_api_token",
+      process.env.REPLICATE_API_TOKEN,
+    );
+    if (!apiToken && !replicate.isImageGenConfigured()) {
+      return res
+        .status(503)
+        .json({ error: "Outfit rendering is not configured on this server." });
+    }
+
+    const garments = renderableGarments(items);
+    if (garments.length === 0) {
+      return res.status(400).json({ error: "Outfit has no renderable garments" });
+    }
+
+    const publicBase = (
+      (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) ||
+      publicRoot(req)
+    ).replace(/\/$/, "");
+    const txtModel = await settings.getSetting(
+      "replicate_txt2img_model",
+      process.env.REPLICATE_TXT2IMG_MODEL,
+    );
+    const multiModel = await settings.getSetting(
+      "replicate_multi_img_model",
+      process.env.REPLICATE_MULTI_IMG_MODEL,
+    );
+
+    try {
+      const result = await withTimeout(
+        (async () => {
+          // 1) Generate a product image per garment.
+          const paths = [];
+          for (const g of garments) {
+            const p = await ensureItemImageFile(
+              profileId,
+              garmentDescriptionFor(g),
+              apiToken,
+              txtModel,
+            );
+            if (p) paths.push(p);
+          }
+          if (paths.length === 0) {
+            throw new Error("could not generate garment reference images");
+          }
+
+          // 2) Composite into one reference sheet; both URLs must be public.
+          const collageFile = await buildGarmentCollage(profileId, paths);
+          const bodyUrl = `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`;
+          const refUrl = `${publicBase}/wardrobe/${profileId}/generated/${collageFile}`;
+
+          // 3) Image-conditioned edit: dress the person in the reference garments.
+          const descriptions = garments.map(garmentDescriptionFor).filter(Boolean);
+          const prompt =
+            "Dress the person in the first image in exactly the clothes shown in " +
+            "the second image: " +
+            descriptions.join("; ") +
+            ". Keep the exact same face, hair, body shape, pose, camera angle, " +
+            "lighting and background. Photorealistic, natural fit, full outfit.";
+          const outUrl = await replicate.editImageWithRef({
+            imageUrl: bodyUrl,
+            refImageUrl: refUrl,
+            prompt,
+            apiToken,
+            model: multiModel,
+          });
+
+          // 4) Save the render and a gallery entry.
+          const r = await fetch(outUrl);
+          const buf = Buffer.from(await r.arrayBuffer());
+          const dir = wardrobeDb.ensureDir(wardrobeDb.generationsDir(profileId));
+          const filename = `${crypto.randomUUID()}.jpg`;
+          fs.writeFileSync(path.join(dir, filename), buf);
+          const id = await wardrobeDb.insertGeneration(db, profileId, {
+            kind: "generated_tryon",
+            title: outfitTitle(items),
+            prompt,
+            items,
+            context: context || null,
+            filename,
+          });
+          return {
+            generationId: id,
+            tryOnUrl: `${serverRoot(req)}/wardrobe/${profileId}/generations/${filename}`,
+          };
+        })(),
+        TRYON_BUDGET_MS,
+      );
+      res.json(result);
+    } catch (err) {
+      console.warn("[wardrobe] generated-outfit render failed:", err.message);
+      return res.status(502).json({
+        error:
+          "Could not render this outfit on your photo. Check that the server's " +
+          "public image URL is reachable by Replicate and the render model/token " +
+          "are valid.",
+        detail: err.message,
+      });
+    }
+  } catch (err) {
+    next(err);
   }
 }
 
@@ -490,9 +682,6 @@ async function generateOutfit(req, res, next) {
       return res.status(502).json({ error: "Could not generate outfits right now." });
     }
 
-    const apiToken = await settings.getSetting("replicate_api_token", process.env.REPLICATE_API_TOKEN);
-    const canImage = !!apiToken || replicate.isImageGenConfigured();
-
     // Shopping links are synchronous and always attached.
     for (const cnd of candidates) {
       cnd.items = Array.isArray(cnd.items) ? cnd.items : [];
@@ -503,8 +692,7 @@ async function generateOutfit(req, res, next) {
       cnd.tryOnUrl = null;
     }
 
-    // Re-rank BEFORE rendering, so we only spend image-edit credit on the order
-    // the user will actually see.
+    // Re-rank so the order the user sees reflects their learned preference.
     try {
       const scoreInput = candidates.map((cnd) => ({ item_ids: [], items: cnd.items }));
       const scores = await prefClient.score(profileId, scoreInput, context);
@@ -518,59 +706,10 @@ async function generateOutfit(req, res, next) {
       console.warn("[wardrobe] generate re-rank failed:", err.message);
     }
 
-    // Primary path: render each outfit ONTO the user's body photo (flux-kontext)
-    // and save it to the gallery — "see yourself wearing it". Needs a body photo
-    // and a PUBLIC origin Replicate can fetch it from. Runs in parallel, each
-    // time-boxed, best-effort: a failed/throttled render leaves that candidate
-    // without a try-on image rather than hanging the response.
-    const bodyFilename = await wardrobeDb.getBodyPhotoFilename(db, profileId);
-    const publicBase =
-      (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) ||
-      publicRoot(req);
-    const editModel = await settings.getSetting(
-      "replicate_img_edit_model",
-      process.env.REPLICATE_IMG_EDIT_MODEL,
-    );
-
-    if (canImage && bodyFilename) {
-      const bodyUrl = `${publicBase.replace(/\/$/, "")}/wardrobe/${profileId}/body/${bodyFilename}`;
-      await Promise.allSettled(
-        candidates.map((cnd) =>
-          withTimeout(
-            renderTryOnForCandidate(req, db, profileId, bodyUrl, cnd, context, apiToken, editModel),
-            TRYON_BUDGET_MS,
-          ).catch((err) =>
-            console.warn(`[wardrobe] try-on render failed: ${err.message}`),
-          ),
-        ),
-      );
-    } else if (canImage) {
-      // Fallback when no body photo is set: per-item product previews on white,
-      // so the feature still works (degrades to concept cards on failure).
-      const txtModel = await settings.getSetting(
-        "replicate_txt2img_model",
-        process.env.REPLICATE_TXT2IMG_MODEL,
-      );
-      const jobs = [];
-      for (const cnd of candidates) {
-        for (const item of cnd.items) {
-          jobs.push(
-            withTimeout(
-              generateItemImage(req, profileId, item.imagePrompt, apiToken, txtModel),
-              IMAGE_GEN_BUDGET_MS,
-            )
-              .then((url) => {
-                item.imageUrl = url;
-              })
-              .catch(() => {
-                item.imageUrl = null;
-              }),
-          );
-        }
-      }
-      await Promise.allSettled(jobs);
-    }
-
+    // Rendering "on me" is now on-demand (POST /outfit/generate/render): generate
+    // returns concept cards instantly with tryOnUrl null, and the app renders the
+    // single outfit the user picks. Keeps generate fast and only spends image
+    // credit on outfits the user actually wants to see on themselves.
     res.json({ candidates, context });
   } catch (err) {
     next(err);
@@ -763,6 +902,7 @@ module.exports = {
   getBodyPhoto,
   suggestOutfit,
   generateOutfit,
+  renderGeneratedOutfit,
   renderOutfit,
   listGenerations: listGenerationsRoute,
   deleteGeneration: deleteGenerationRoute,

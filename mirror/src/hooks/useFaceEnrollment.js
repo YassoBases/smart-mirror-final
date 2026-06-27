@@ -20,15 +20,20 @@ function delay(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Enrollment must use the SAME detector + landmark models as live detection
+// (HandTrackingService: tinyFaceDetector + faceLandmark68TinyNet). The face
+// descriptor depends on how the face is aligned from its landmarks, so mixing a
+// full-size detector here with the tiny detector at runtime produces descriptors
+// that don't match — the root cause of "it doesn't recognize me".
 async function loadModels() {
   const faceapi = await waitForFaceApi();
   if (!faceapi) return false;
   try {
     const nets = faceapi.nets;
-    if (!nets.ssdMobilenetv1.isLoaded)
-      await nets.ssdMobilenetv1.loadFromUri(FACE_MODEL_URL);
-    if (!nets.faceLandmark68Net.isLoaded)
-      await nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL);
+    if (!nets.tinyFaceDetector.isLoaded)
+      await nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL);
+    if (!nets.faceLandmark68TinyNet.isLoaded)
+      await nets.faceLandmark68TinyNet.loadFromUri(FACE_MODEL_URL);
     if (!nets.faceRecognitionNet.isLoaded)
       await nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL);
     return true;
@@ -43,9 +48,14 @@ async function descriptorFromUrl(url) {
   if (!faceapi) return null;
   try {
     const img = await faceapi.fetchImage(url);
+    // inputSize 320 (vs the runtime 224) gives a cleaner enrollment descriptor
+    // from a still photo while still using the tiny detector/landmark pair.
     const det = await faceapi
-      .detectSingleFace(img)
-      .withFaceLandmarks()
+      .detectSingleFace(
+        img,
+        new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }),
+      )
+      .withFaceLandmarks(true)
       .withFaceDescriptor();
     return det?.descriptor ?? null;
   } catch (e) {
