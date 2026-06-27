@@ -13,6 +13,8 @@ jest.mock("../lib/replicate", () => ({
   isImageGenConfigured: jest.fn(() => false),
   tryOn: jest.fn(),
   generateImage: jest.fn(),
+  composeOutfit: jest.fn(),
+  editImageWithRef: jest.fn(),
 }));
 jest.mock("../lib/pref_client", () => ({
   score: jest.fn(async () => null),
@@ -220,7 +222,7 @@ describe("outfit/render", () => {
     expect(pathOf(second.body.renderUrl)).toBe(pathOf(first.body.renderUrl));
   });
 
-  test("uses Replicate VTON when configured", async () => {
+  test("uses Replicate (Nano Banana) compose when configured", async () => {
     const topId = await makeItem("top");
     await auth(request(app).post(`${base()}/body-photo`)).attach("photo", img, {
       filename: "me2.jpg",
@@ -228,7 +230,7 @@ describe("outfit/render", () => {
     });
 
     replicate.isConfigured.mockReturnValue(true);
-    replicate.tryOn.mockResolvedValue("https://replicate.test/out.png");
+    replicate.composeOutfit.mockResolvedValue("https://replicate.test/out.png");
     const realFetch = global.fetch;
     global.fetch = jest.fn(async () => ({
       ok: true,
@@ -240,7 +242,7 @@ describe("outfit/render", () => {
         itemIds: [topId],
       });
       expect(res.status).toBe(200);
-      expect(replicate.tryOn).toHaveBeenCalled();
+      expect(replicate.composeOutfit).toHaveBeenCalled();
       expect(global.fetch).toHaveBeenCalledWith("https://replicate.test/out.png");
     } finally {
       global.fetch = realFetch;

@@ -36,6 +36,12 @@ const REPLICATE_IMG_EDIT_MODEL =
 const REPLICATE_MULTI_IMG_MODEL =
   process.env.REPLICATE_MULTI_IMG_MODEL ||
   "flux-kontext-apps/multi-image-kontext-pro";
+// Nano Banana (Gemini 2.5 Flash Image): one-shot multi-image composer used for
+// virtual try-on — give it the body photo + the garment image(s) and it dresses
+// the person in them in a single call. No version pinned (resolveVersion fetches
+// the latest). Override via REPLICATE_NANO_MODEL / Settings (replicate_nano_model).
+const REPLICATE_NANO_MODEL =
+  process.env.REPLICATE_NANO_MODEL || "google/nano-banana";
 
 const API_BASE = "https://api.replicate.com/v1";
 
@@ -318,11 +324,63 @@ async function editImageWithRef({ imageUrl, refImageUrl, prompt, apiToken, model
   return out;
 }
 
+/**
+ * One-shot outfit composer (Nano Banana / Gemini Flash Image): renders the
+ * person in `imageUrls[0]` wearing the garments shown in the remaining images,
+ * per `prompt`. Used for both closet and generated try-on. All URLs must be
+ * PUBLIC so Replicate can fetch them. Nano works best with <= 3 images, so
+ * callers typically pass [bodyUrl, garmentCollageUrl].
+ * @param {{ imageUrls:string[], prompt:string, apiToken?:string, model?:string }} args
+ * @returns {Promise<string>} output image URL
+ */
+async function composeOutfit({ imageUrls, prompt, apiToken, model }) {
+  const token = apiToken || REPLICATE_API_TOKEN;
+  const modelRef = model || REPLICATE_NANO_MODEL;
+  if (!token) {
+    throw Object.assign(new Error("REPLICATE_API_TOKEN not configured"), {
+      code: "REPLICATE_UNSET",
+    });
+  }
+  if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
+    throw Object.assign(new Error("composeOutfit needs at least one image URL"), {
+      code: "REPLICATE_IMAGE_MISSING",
+    });
+  }
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+  const version = await resolveVersion(modelRef, headers);
+
+  const createRes = await fetch(`${API_BASE}/predictions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      version,
+      input: { prompt, image_input: imageUrls, output_format: "jpg" },
+    }),
+  });
+  const created = await createRes.json();
+  if (!createRes.ok) {
+    throw new Error(
+      `Replicate create failed (${createRes.status}): ${
+        created?.detail || created?.title || "unknown error"
+      }`,
+    );
+  }
+
+  const done = await poll(created.urls.get, headers);
+  const out = Array.isArray(done.output) ? done.output[0] : done.output;
+  if (!out) throw new Error("Replicate returned no output image");
+  return out;
+}
+
 module.exports = {
   tryOn,
   generateImage,
   editImage,
   editImageWithRef,
+  composeOutfit,
   isConfigured,
   isImageGenConfigured,
   parseModel,
@@ -330,4 +388,5 @@ module.exports = {
   REPLICATE_TXT2IMG_MODEL,
   REPLICATE_IMG_EDIT_MODEL,
   REPLICATE_MULTI_IMG_MODEL,
+  REPLICATE_NANO_MODEL,
 };

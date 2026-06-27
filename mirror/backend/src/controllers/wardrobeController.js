@@ -276,13 +276,6 @@ function garmentDescription(row, fallback) {
   return parts.length ? parts.join(" ") : fallback;
 }
 
-// Maps a wardrobe category to the IDM-VTON garment region.
-function vtonCategory(category) {
-  if (category === "top" || category === "outerwear") return "upper_body";
-  if (category === "bottom") return "lower_body";
-  return undefined;
-}
-
 async function renderOutfit(req, res, next) {
   try {
     const { itemIds } = validate(renderSchema, req.body || {});
@@ -308,24 +301,24 @@ async function renderOutfit(req, res, next) {
       });
     }
 
-    // Resolve items; only top + bottom are composited (per the spec).
+    // Resolve the selected items (the whole outfit is composited at once).
     const rows = [];
     for (const id of itemIds) {
       const row = await wardrobeDb.getItem(db, id);
       if (row && row.profile_id === profileId) rows.push(row);
     }
-    const top = rows.find((r) => r.category === "top");
-    const bottom = rows.find((r) => r.category === "bottom");
     const bodyUrl = bodyPhotoUrl(req, profileId, bodyFilename);
 
     // Replicate config: prefer values set in the mirror Settings UI (app_settings),
     // fall back to env. publicBase is the origin Replicate fetches images from.
     const apiToken = await settings.getSetting("replicate_api_token", process.env.REPLICATE_API_TOKEN);
-    const model = await settings.getSetting("replicate_vton_model", process.env.REPLICATE_VTON_MODEL);
-    const publicBase =
-      (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) || publicRoot(req);
+    const nanoModel = await settings.getSetting("replicate_nano_model", process.env.REPLICATE_NANO_MODEL);
+    const publicBase = (
+      (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) ||
+      publicRoot(req)
+    ).replace(/\/$/, "");
 
-    // VTON is "configured" when we have a token (from Settings or env). When it
+    // Try-on is "configured" when we have a token (from Settings or env). When it
     // is, a failed render is surfaced as an error rather than silently returning
     // the unchanged body photo — that silent fallback made a broken render (e.g.
     // an unreachable public_base_url) look like "nothing happened".
@@ -334,38 +327,44 @@ async function renderOutfit(req, res, next) {
     let vtonRan = false;
 
     if (vtonConfigured) {
-      const pub = publicBase.replace(/\/$/, "");
-      // Inputs sent to Replicate must be public; the body image starts the chain.
-      let human = `${pub}/wardrobe/${profileId}/body/${bodyFilename}`;
-      try {
-        for (const garment of [top, bottom].filter(Boolean)) {
-          const garmUrl = itemImageUrl(pub, profileId, garment);
-          if (!garmUrl) {
-            // No background-removed image — the garment can't be composited.
-            // Skip it (with a warning) rather than sending a null URL to Replicate.
-            console.warn(
-              `[wardrobe] item ${garment.id} has no nobg image; skipping in render`,
-            );
-            continue;
-          }
-          human = await replicate.tryOn({
-            humanImageUrl: human,
-            garmentImageUrl: garmUrl,
-            garmentDes: garmentDescription(garment, garment.category),
-            category: vtonCategory(garment.category),
-            apiToken,
-            model,
-          });
-          vtonRan = true;
+      // Build the garment list from each item's background-removed image; the
+      // whole outfit is dropped on at once by the one-shot composer.
+      const garments = [];
+      for (const row of rows) {
+        if (!row.nobg_filename) {
+          console.warn(`[wardrobe] item ${row.id} has no nobg image; skipping in render`);
+          continue;
         }
-        finalUrl = human;
+        garments.push({
+          localPath: path.join(wardrobeDb.itemDir(profileId, row.id), row.nobg_filename),
+          publicUrl: itemImageUrl(publicBase, profileId, row),
+          description: garmentDescription(row, row.category),
+          pattern: row.pattern,
+        });
+      }
+      if (garments.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "None of the selected items have a usable image to render" });
+      }
+      try {
+        const bodyPublicUrl = `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`;
+        finalUrl = await nanoRenderOutfit({
+          profileId,
+          bodyPublicUrl,
+          garments,
+          publicBase,
+          apiToken,
+          model: nanoModel,
+        });
+        vtonRan = true;
       } catch (err) {
-        console.warn("[wardrobe] VTON render failed:", err.message);
+        console.warn("[wardrobe] Nano render failed:", err.message);
         return res.status(502).json({
           error:
             "Could not render this outfit on your photo. " +
             "Check that the server's public image URL is reachable by Replicate " +
-            "and the VTON model/token are valid.",
+            "and the render model/token are valid.",
           detail: err.message,
         });
       }
@@ -537,6 +536,59 @@ async function buildGarmentCollage(profileId, paths) {
   return filename;
 }
 
+// Graphic prints / logos transfer worst in a single multi-garment pass, so they
+// get a focused second Nano pass.
+function isGraphicPattern(p) {
+  return p === "print";
+}
+
+// Renders an outfit onto the body photo with Nano Banana (one-shot composer):
+// composites the garment images into one reference sheet, dresses the person in
+// them in a single pass, then re-runs each graphic-print/logo garment on its own
+// for a sharper result. Returns the final Replicate image URL. Every URL must be
+// publicly fetchable by Replicate. garments: [{ localPath, publicUrl, description,
+// pattern }].
+async function nanoRenderOutfit({ profileId, bodyPublicUrl, garments, publicBase, apiToken, model }) {
+  const usable = garments.filter((g) => g.localPath && g.publicUrl);
+  if (usable.length === 0) throw new Error("no garment images to render");
+
+  const collageFile = await buildGarmentCollage(
+    profileId,
+    usable.map((g) => g.localPath),
+  );
+  const collageUrl = `${publicBase}/wardrobe/${profileId}/generated/${collageFile}`;
+  const descriptions = usable.map((g) => g.description).filter(Boolean);
+
+  const prompt =
+    "Dress the person in the first image in exactly the clothes shown in the " +
+    "second image: " +
+    descriptions.join("; ") +
+    ". Keep the exact same face, hair, body shape, pose, camera angle, lighting " +
+    "and background. Photorealistic, natural fit, full outfit.";
+  let outUrl = await replicate.composeOutfit({
+    imageUrls: [bodyPublicUrl, collageUrl],
+    prompt,
+    apiToken,
+    model,
+  });
+
+  for (const g of usable) {
+    if (!isGraphicPattern(g.pattern)) continue;
+    const refinePrompt =
+      `Refine the ${g.description || "garment"} the person is wearing so its ` +
+      "graphic print / logo exactly matches the garment shown in the second " +
+      "image. Keep the person, face, pose, lighting and everything else " +
+      "identical. Photorealistic.";
+    outUrl = await replicate.composeOutfit({
+      imageUrls: [outUrl, g.publicUrl],
+      prompt: refinePrompt,
+      apiToken,
+      model,
+    });
+  }
+  return outUrl;
+}
+
 // POST /outfit/generate/render — render ONE generated outfit onto the body photo
 // (on-demand). Generates a product image per garment, composites them, and feeds
 // body + garment reference to a multi-image edit model so the rendered clothes
@@ -576,16 +628,16 @@ async function renderGeneratedOutfit(req, res, next) {
       "replicate_txt2img_model",
       process.env.REPLICATE_TXT2IMG_MODEL,
     );
-    const multiModel = await settings.getSetting(
-      "replicate_multi_img_model",
-      process.env.REPLICATE_MULTI_IMG_MODEL,
+    const nanoModel = await settings.getSetting(
+      "replicate_nano_model",
+      process.env.REPLICATE_NANO_MODEL,
     );
 
     try {
       const result = await withTimeout(
         (async () => {
-          // 1) Generate a product image per garment.
-          const paths = [];
+          // 1) Generate a product image per garment and build the garment list.
+          const garmentRefs = [];
           for (const g of garments) {
             const p = await ensureItemImageFile(
               profileId,
@@ -593,31 +645,27 @@ async function renderGeneratedOutfit(req, res, next) {
               apiToken,
               txtModel,
             );
-            if (p) paths.push(p);
+            if (!p) continue;
+            garmentRefs.push({
+              localPath: p,
+              publicUrl: `${publicBase}/wardrobe/${profileId}/generated/${path.basename(p)}`,
+              description: garmentDescriptionFor(g),
+              pattern: g.pattern,
+            });
           }
-          if (paths.length === 0) {
+          if (garmentRefs.length === 0) {
             throw new Error("could not generate garment reference images");
           }
 
-          // 2) Composite into one reference sheet; both URLs must be public.
-          const collageFile = await buildGarmentCollage(profileId, paths);
-          const bodyUrl = `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`;
-          const refUrl = `${publicBase}/wardrobe/${profileId}/generated/${collageFile}`;
-
-          // 3) Image-conditioned edit: dress the person in the reference garments.
-          const descriptions = garments.map(garmentDescriptionFor).filter(Boolean);
-          const prompt =
-            "Dress the person in the first image in exactly the clothes shown in " +
-            "the second image: " +
-            descriptions.join("; ") +
-            ". Keep the exact same face, hair, body shape, pose, camera angle, " +
-            "lighting and background. Photorealistic, natural fit, full outfit.";
-          const outUrl = await replicate.editImageWithRef({
-            imageUrl: bodyUrl,
-            refImageUrl: refUrl,
-            prompt,
+          // 2) Compose onto the body with Nano Banana (one-shot + print refine).
+          const bodyPublicUrl = `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`;
+          const outUrl = await nanoRenderOutfit({
+            profileId,
+            bodyPublicUrl,
+            garments: garmentRefs,
+            publicBase,
             apiToken,
-            model: multiModel,
+            model: nanoModel,
           });
 
           // 4) Save the render and a gallery entry.
