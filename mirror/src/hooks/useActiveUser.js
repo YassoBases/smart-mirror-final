@@ -44,58 +44,45 @@ const useActiveUser = () => {
       if (!mirrorId) return;
       const profile = await backendApi.getActiveUser(mirrorId);
 
-      const { profiles: currentProfiles } = getUsers();
-      const phoneProfiles = currentProfiles.filter(p => p.source === 'phone');
-      const localProfiles = currentProfiles.filter(p => p.source !== 'phone');
-
-      // ── Case 1: no active user (deleted or never set) ──────────────────────
+      // ── No active user (guest / signed out) ───────────────────────────────
+      // Clear our active tracking but DO NOT remove enrolled members. Household
+      // membership is owned by useFaceEnrollment now; wiping the list here would
+      // erase the very profiles face recognition matches against (this was the
+      // bug that made other family members read as "unknown").
       if (!profile) {
-        if (phoneProfiles.length === 0) return; // nothing to remove
-
-        console.log('[useActiveUser] Profile removed on backend — clearing:', phoneProfiles.map(p => p.name));
-        // saveProfiles replaces the full list; if activeUserId was a phone
-        // profile it automatically falls back to the first local profile or null.
-        saveProfiles(localProfiles);
         lastProfileIdRef.current = null;
-        setUsersState(getUsers());
-        console.log('[useActiveUser] Active user cleared.');
         return;
       }
 
-      // ── Case 2: active profile returned ────────────────────────────────────
+      // ── Active profile returned ───────────────────────────────────────────
       const newId = `phone-${profile.id}`;
 
-      // Detect stale phone profiles (previously set users now absent from backend).
-      const stale = phoneProfiles.filter(p => p.id !== newId);
-      if (stale.length > 0) {
-        console.log('[useActiveUser] Removing stale phone profiles:', stale.map(p => p.name));
-      }
-
-      // Skip only when the same profile is active AND the list is already clean.
-      const alreadyClean = phoneProfiles.length === 1 && phoneProfiles[0].id === newId;
-      if (profile.id === lastProfileIdRef.current && alreadyClean) {
-        console.log('[useActiveUser] Profile unchanged and clean (id:', profile.id, ') — skipping.');
+      // Already the active user — nothing to do.
+      if (profile.id === lastProfileIdRef.current && getUsers().activeUserId === newId) {
         return;
       }
-
-      console.log('[useActiveUser] Updating to profile:', profile.name, '(id:', profile.id, ')');
       lastProfileIdRef.current = profile.id;
 
+      // Non-destructive upsert: ensure the active profile is present + current,
+      // then switch to it — WITHOUT deleting any sibling household profiles.
       const remoteProfile = {
-        id:           newId,
-        name:         profile.name,
-        source:       'phone',
+        id:             newId,
+        name:           profile.name,
+        source:         'phone',
         gmailConnected: profile.gmailConnected,
-        gmailEmail:   profile.gmailEmail || null,
-        backendId:    profile.id,
+        gmailEmail:     profile.gmailEmail || null,
+        backendId:      profile.id,
       };
-
-      // Replace ALL phone profiles with only the current one.
-      // This removes deleted/switched users without touching local profiles.
-      saveProfiles([...localProfiles, remoteProfile]);
-      setActiveUser(remoteProfile.id);
+      const { profiles: list } = getUsers();
+      const idx = list.findIndex((p) => p.id === newId);
+      const nextList =
+        idx >= 0
+          ? list.map((p) => (p.id === newId ? { ...p, ...remoteProfile } : p))
+          : [...list, remoteProfile];
+      saveProfiles(nextList);
+      setActiveUser(newId);
       setUsersState(getUsers());
-      console.log('[useActiveUser] UI active user updated to:', remoteProfile.name);
+      console.log('[useActiveUser] Active user →', remoteProfile.name, '(id:', profile.id, ')');
     };
 
     poll();

@@ -89,7 +89,8 @@ const HandTrackingApp = ({ onClose, onHandPosition, settings = {} }) => {
         ctx.restore();
       }
 
-      if (showPreview) {
+      // FPS counter is opt-in (off by default) — only draw when explicitly enabled.
+      if (showPreview && settingsRef.current.showFps) {
         ctx.save();
         ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
         ctx.fillRect(12, 12, 96, 32);
@@ -102,6 +103,13 @@ const HandTrackingApp = ({ onClose, onHandPosition, settings = {} }) => {
 
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         const hand = results.multiHandLandmarks[0];
+
+        // A partial/teardown frame can leave a landmark undefined; bail before
+        // dereferencing `.x` (the onResults "reading 'x'" crash).
+        if (!Array.isArray(hand) || hand.length < 21 || !hand.every((p) => p && typeof p.x === 'number')) {
+          if (onHandPosition) onHandPosition({ detected: false });
+          return;
+        }
 
         if (showPreview) {
           // Draw hand connections

@@ -18,7 +18,7 @@ const newsRoutes       = require("./routes/news");
 const provisioningRoutes = require("./routes/provisioning");
 const wardrobeRoutes = require("./routes/wardrobe");
 const settingsRoutes = require("./routes/settings");
-const { getByMirrorId } = require("./controllers/profileController");
+const { getByMirrorId, getHouseholdByMirrorId } = require("./controllers/profileController");
 
 const app = express();
 
@@ -61,6 +61,10 @@ app.use("/api/spotify", spotifyRoutes);
 
 // Public mirror endpoint — no auth, used by the mirror display (profile list)
 app.get("/api/mirror/:mirrorId/profiles", getByMirrorId);
+
+// Household-scoped profile list for the mirror — every member of the mirror's
+// household (for face enrollment), resolved via the mirrors→accounts chain.
+app.get("/api/mirror/:mirrorId/household-profiles", getHouseholdByMirrorId);
 
 // Mirror routes — active user polling, Gmail status, Gmail messages
 app.use("/api/mirrors", mirrorsRoutes);

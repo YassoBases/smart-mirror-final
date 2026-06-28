@@ -87,8 +87,9 @@ export const apps = [
     defaultPosition: { x: 800, y: 50 },
     defaultSize: { width: 350, height: 300 },
     settings: {
-      enabled: false,
-      showPreview: false,
+      enabled: true,
+      showPreview: true,
+      showFps: false,
       sensitivity: 1.0,
       smoothing: 0.8,
       brightness: 1,

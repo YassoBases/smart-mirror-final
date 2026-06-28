@@ -26,6 +26,19 @@ async function getByMirrorId(req, res, next) {
   }
 }
 
+// Every profile in the mirror's household (for face enrollment), not just the
+// ones linked via profiles.mirror_id.
+async function getHouseholdByMirrorId(req, res, next) {
+  try {
+    const profiles = await profileService.getHouseholdProfilesByMirrorId(
+      req.params.mirrorId,
+    );
+    res.json({ profiles });
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function create(req, res, next) {
   try {
     const { name, email } = req.body;
@@ -212,6 +225,7 @@ module.exports = {
   update,
   setMirror,
   getByMirrorId,
+  getHouseholdByMirrorId,
   remove,
   uploadFace,
   uploadFaces,

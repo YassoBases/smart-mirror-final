@@ -107,9 +107,10 @@ async function getActiveProfile(mirrorId) {
   );
   if (fromActive) return fromActive;
 
-  // Fallback: profile linked via app (profiles.mirror_id)
+  // Fallback: profile linked via app (profiles.mirror_id). Deterministic tiebreak
+  // on id so a household with several linked profiles always resolves the same one.
   return db.get(
-    `${SELECT} WHERE p.mirror_id = ? ORDER BY p.name LIMIT 1`,
+    `${SELECT} WHERE p.mirror_id = ? ORDER BY p.name, p.id LIMIT 1`,
     mirrorId
   );
 }

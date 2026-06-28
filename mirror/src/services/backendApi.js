@@ -76,6 +76,16 @@ export const backendApi = {
     return data.profiles || [];
   },
 
+  // Every profile in this mirror's household (for face enrollment), not just the
+  // ones individually paired to this mirror. Lets the mirror recognise all
+  // family members by name and switch to them.
+  getHouseholdProfilesByMirror: async (mirrorId) => {
+    const res = await fetch(`${API_URL}/api/mirror/${encodeURIComponent(mirrorId)}/household-profiles`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.profiles || [];
+  },
+
   // Public URL for an enrolled face image, on the same (dynamic) host as the API
   // so face-api can fetch it for descriptor computation without cross-origin pain.
   faceImageUrl: (filename) => `${API_URL}/faces/${filename}`,

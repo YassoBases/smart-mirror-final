@@ -3,8 +3,10 @@
 // state. On-screen buttons are real <button>s so the mirror's existing
 // pinch-to-click drives next/try-on/feedback; the open-palm/fist/swipe gestures
 // are the hands-free alternatives.
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+
+import { useProfile } from '../../contexts/ProfileContext';
 
 import { useWardrobeSession, STATES } from './useWardrobeSession';
 import { createGestureRecognizer } from './gestureMap';
@@ -20,6 +22,21 @@ export default function WardrobeWidget() {
   const { state, current, index, candidates, itemsById, context, renderUrl, fromCache, error, occasion, mode, actions } =
     useWardrobeSession();
   const isGenerated = mode === 'generated';
+
+  // Reset the session whenever the active profile changes, so one person's outfit
+  // candidates / closet item ids never carry into another's view (and never get
+  // rendered onto the new person's body). The body photo + closet are resolved
+  // server-side per active profile; this keeps the on-screen session in sync.
+  const { activeProfile } = useProfile();
+  const activeProfileId = activeProfile?.profileId ?? null;
+  const prevProfileIdRef = useRef(activeProfileId);
+  const { dismiss } = actions;
+  useEffect(() => {
+    if (prevProfileIdRef.current !== activeProfileId) {
+      prevProfileIdRef.current = activeProfileId;
+      dismiss();
+    }
+  }, [activeProfileId, dismiss]);
 
   // Bind hands-free gestures to actions; only active gestures fire per state.
   // NOTE: the open-palm "summon / suggest an outfit" gesture is intentionally NOT

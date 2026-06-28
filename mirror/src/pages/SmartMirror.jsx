@@ -503,9 +503,13 @@ const SmartMirror = () => {
       // or a weak/ambiguous one). Treat it like an unknown face: never let it clobber
       // the user we're already showing on a single shaky frame; only flag after a run.
 
-      // Only auto-enroll local (non-phone) profiles that have no descriptor yet
+      // Legacy single-user fallback: only auto-enroll a LOCAL (non-phone) profile
+      // when NO phone/household profiles are enrolled. Once real members exist, an
+      // unrecognised face must stay "unknown" — never hijack a leftover local
+      // profile (which would mis-assign a passer-by/stranger to it).
       const { profiles } = getUsers();
-      const unregistered = profiles.find(p => {
+      const hasPhoneProfiles = profiles.some(p => p.source === 'phone');
+      const unregistered = hasPhoneProfiles ? null : profiles.find(p => {
         if (p.source === 'phone') return false; // phone profiles enroll via the app
         const stored = JSON.parse(localStorage.getItem('smartMirrorSettings') || '{}');
         return !stored.faceDescriptors?.[p.id];

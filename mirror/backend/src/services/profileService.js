@@ -62,6 +62,25 @@ async function getProfilesByMirrorId(mirrorId) {
   );
 }
 
+// Like getProfilesByMirrorId, but returns EVERY profile in the mirror's
+// household — not just the ones whose profiles.mirror_id points here. Resolves
+// the household through the mirrors→accounts chain, so the mirror enrolls (and
+// can recognise) all family members even if they never individually paired it.
+async function getHouseholdProfilesByMirrorId(mirrorId) {
+  const db = await getDb();
+  return db.all(
+    `SELECT p.id, p.household_id, p.name, p.email, p.google_sub, p.mirror_id, p.face_filename, p.face_filenames, p.widgets_config, p.created_at,
+            CASE WHEN gc.profile_id IS NOT NULL THEN 1 ELSE 0 END AS gmail_connected
+     FROM profiles p
+     LEFT JOIN gmail_connections gc ON gc.profile_id = p.id
+     JOIN mirrors  m ON m.mirror_id = ?
+     JOIN accounts a ON a.id = m.account_id
+     WHERE p.household_id = a.household_id
+     ORDER BY p.name, p.id`,
+    mirrorId,
+  );
+}
+
 async function getProfile(id) {
   const db = await getDb();
   const profile = await db.get(
@@ -151,6 +170,7 @@ module.exports = {
   getProfile,
   setMirrorId,
   getProfilesByMirrorId,
+  getHouseholdProfilesByMirrorId,
   updateProfile,
   deleteProfile,
   updateWidgets,

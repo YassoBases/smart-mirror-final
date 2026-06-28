@@ -374,33 +374,48 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
 
     if (showPrev && ctx) {
       const exposureFilter = getExposureFilterString(currentSettings);
-      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      const elapsed = now - fpsRef.current.lastTimestamp;
-      fpsRef.current.lastTimestamp = now;
-      const instantFps = elapsed > 0 ? 1000 / elapsed : 0;
-      fpsRef.current.value =
-        FPS_SMOOTHING * fpsRef.current.value + (1 - FPS_SMOOTHING) * instantFps;
-      const smoothedFps = fpsRef.current.value;
 
       ctx.save();
       ctx.filter = exposureFilter;
       ctx.drawImage(video, 0, 0, w, h);
       ctx.restore();
 
-      ctx.save();
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      ctx.fillRect(10, 10, 92, 28);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = '14px "Segoe UI", Arial, sans-serif';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`FPS: ${smoothedFps.toFixed(1)}`, 18, 24);
-      ctx.restore();
+      // FPS counter is opt-in (off by default) — only compute/draw when enabled.
+      if (currentSettings.showFps) {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const elapsed = now - fpsRef.current.lastTimestamp;
+        fpsRef.current.lastTimestamp = now;
+        const instantFps = elapsed > 0 ? 1000 / elapsed : 0;
+        fpsRef.current.value =
+          FPS_SMOOTHING * fpsRef.current.value + (1 - FPS_SMOOTHING) * instantFps;
+        const smoothedFps = fpsRef.current.value;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(10, 10, 92, 28);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '14px "Segoe UI", Arial, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`FPS: ${smoothedFps.toFixed(1)}`, 18, 24);
+        ctx.restore();
+      }
     }
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      const hand = results.multiHandLandmarks[0];
+
+      // MediaPipe normally returns all 21 landmarks, but a partial/teardown frame
+      // can leave entries undefined — validate before dereferencing `.x` (this was
+      // the "Cannot read properties of undefined (reading 'x')" crash in onResults).
+      if (!Array.isArray(hand) || hand.length < 21 || !hand.every((p) => p && typeof p.x === 'number')) {
+        smoothedPositionRef.current = null;
+        const cb = handPositionCallbackRef.current;
+        if (cb) cb({ detected: false });
+        return;
+      }
+
       // A hand is present — keep the camera at full FPS (adaptive idle ramp-up).
       lastHandSeenRef.current = performance.now();
-      const hand = results.multiHandLandmarks[0];
 
       // Get thumb tip (landmark 4), index tip (landmark 8), and pinky tip (landmark 20)
       const thumbTip = hand[4];

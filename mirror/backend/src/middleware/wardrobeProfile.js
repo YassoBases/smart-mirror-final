@@ -40,7 +40,7 @@ async function resolveActiveProfileId(mirrorId) {
   );
   if (fromActive) return fromActive.id;
   const fromLink = await db.get(
-    "SELECT id FROM profiles WHERE mirror_id = ? ORDER BY name LIMIT 1",
+    "SELECT id FROM profiles WHERE mirror_id = ? ORDER BY name, id LIMIT 1",
     mirrorId,
   );
   return fromLink ? fromLink.id : null;

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { saveFaceDescriptors, getFaceDescriptors, getUsers, saveProfiles } from '../data/users';
+import { saveFaceDescriptors, getFaceDescriptors, getUsers, saveProfiles, removeFaceDescriptor } from '../data/users';
 import { backendApi } from '../services/backendApi';
 import { getGeneralSettings } from '../data/generalSettings';
 
@@ -110,11 +110,14 @@ const useFaceEnrollment = () => {
         console.log('[FaceEnroll] Models ready.');
       }
 
-      // Fetch all profiles linked to this mirror (dynamic host via backendApi —
-      // never hardcode localhost, or face-image fetches break off the kiosk).
+      // Fetch ALL profiles in this mirror's household (dynamic host via backendApi
+      // — never hardcode localhost, or face-image fetches break off the kiosk).
+      // Household-scoped (not just mirror-linked) so every family member is
+      // enrolled and recognised by name, even if they never paired the mirror
+      // from their own phone.
       let profiles;
       try {
-        profiles = await backendApi.getProfilesByMirror(mirrorId);
+        profiles = await backendApi.getHouseholdProfilesByMirror(mirrorId);
       } catch (e) {
         console.warn('[FaceEnroll] profile fetch failed:', e.message);
         return;
@@ -167,6 +170,25 @@ const useFaceEnrollment = () => {
         ensureProfileInUserList(p.id, p.name);
         console.log(
           `[FaceEnroll] Enrolled: ${p.name} — ${descriptors.length}/${filenames.length} poses matched`
+        );
+      }
+
+      // Reconcile the local member list with the household: drop any phone
+      // profiles (and their descriptors) no longer present in the household, so
+      // deletions on the phone propagate and stale faces stop matching. This
+      // hook owns "who exists"; useActiveUser only tracks "who is active".
+      const householdIds = new Set(profiles.map((p) => `phone-${p.id}`));
+      const { profiles: localList } = getUsers();
+      const removed = localList.filter(
+        (p) => p.source === 'phone' && !householdIds.has(p.id),
+      );
+      if (removed.length > 0) {
+        const removedIds = new Set(removed.map((p) => p.id));
+        removed.forEach((p) => removeFaceDescriptor(p.id));
+        saveProfiles(localList.filter((p) => !removedIds.has(p.id)));
+        console.log(
+          '[FaceEnroll] Removed profiles no longer in household:',
+          removed.map((p) => p.name),
         );
       }
     };

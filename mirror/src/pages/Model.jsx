@@ -357,6 +357,12 @@ const Model = () => {
       }
 
       const landmarks = results.multiHandLandmarks[0];
+      // A partial/teardown frame can leave a landmark undefined; bail before the
+      // transform / toWorldSpace dereference `.x` (the onResults "reading 'x'" crash).
+      if (!Array.isArray(landmarks) || landmarks.length < 21 || !landmarks.every((p) => p && typeof p.x === 'number')) {
+        handTargetRef.current.visible = false;
+        return;
+      }
       const cameraPosition = settingsRef.current.cameraPosition || 'top';
       const orientedLandmarks = transformLandmarksForCamera(landmarks, cameraPosition);
       const worldLandmarks = orientedLandmarks.map((landmark) => toWorldSpace(landmark));

@@ -525,7 +525,7 @@ const Settings = () => {
       }
 
       case 'handtracking': {
-        const isEnabled = getAppSetting('handtracking', 'enabled', false);
+        const isEnabled = getAppSetting('handtracking', 'enabled', true);
         const brightness = getAppSetting('handtracking', 'brightness', 1);
         const contrast = getAppSetting('handtracking', 'contrast', 1);
         const detectionConfidence = getAppSetting('handtracking', 'minDetectionConfidence', 0.5);
@@ -573,7 +573,7 @@ const Settings = () => {
               <label className="flex items-center space-x-2">
                 <input
                   type="checkbox"
-                  checked={getAppSetting('handtracking', 'showPreview', false)}
+                  checked={getAppSetting('handtracking', 'showPreview', true)}
                   onChange={(e) => handleSettingChange('handtracking', 'showPreview', e.target.checked)}
                   className="lux-checkbox"
                   disabled={!isEnabled}
@@ -581,7 +581,23 @@ const Settings = () => {
                 <span>Show Camera Preview</span>
               </label>
               <p className="text-xs text-white/28 mt-1">
-                Display camera feed with hand landmarks in the Hand Tracking app
+                Display the camera feed with hand landmarks on the mirror
+              </p>
+            </div>
+
+            <div>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={getAppSetting('handtracking', 'showFps', false)}
+                  onChange={(e) => handleSettingChange('handtracking', 'showFps', e.target.checked)}
+                  className="lux-checkbox"
+                  disabled={!isEnabled || !getAppSetting('handtracking', 'showPreview', true)}
+                />
+                <span>Show FPS Counter</span>
+              </label>
+              <p className="text-xs text-white/28 mt-1">
+                Overlay frames-per-second on the camera preview (off by default)
               </p>
             </div>
 
