@@ -82,7 +82,7 @@ async function resolveVersion(model, headers) {
   const idx = model.indexOf(":");
   if (idx !== -1) return model.slice(idx + 1);
   if (_versionCache.has(model)) return _versionCache.get(model);
-  const res = await fetch(`${API_BASE}/models/${model}`, { headers });
+  const res = await fetchWithRetry(`${API_BASE}/models/${model}`, { headers });
   const data = await res.json();
   if (!res.ok || !data?.latest_version?.id) {
     throw new Error(
@@ -99,7 +99,7 @@ async function poll(predictionUrl, headers, { timeoutMs = 120000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const res = await fetch(predictionUrl, { headers });
+    const res = await fetchWithRetry(predictionUrl, { headers });
     const data = await res.json();
     if (data.status === "succeeded") return data;
     if (data.status === "failed" || data.status === "canceled") {
@@ -115,23 +115,71 @@ async function poll(predictionUrl, headers, { timeoutMs = 120000 } = {}) {
 //   * 429 / "throttled" — low-credit accounts are capped at ~6 predictions/min,
 //     burst 1, so back-to-back calls (e.g. generating several garment images)
 //     get rejected until the limit resets.
-function isTransientReplicateError(msg) {
-  return /failed to generate image|429|too many requests|throttled|rate limit/i.test(
-    msg || "",
+//   * Network flakiness on a weak uplink — `fetch failed` wrapping ETIMEDOUT /
+//     ECONNRESET / EAI_AGAIN etc. (this box drops a meaningful fraction of its
+//     outbound TLS connections; an immediate retry almost always succeeds).
+function isTransientReplicateError(err) {
+  const msg = typeof err === "string" ? err : err?.message || "";
+  const code = (err && (err.cause?.code || err.code)) || "";
+  return (
+    /failed to generate image|429|too many requests|throttled|rate limit/i.test(msg) ||
+    /fetch failed|network|socket hang up|timed out|timeout/i.test(msg) ||
+    /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH|EPIPE|UND_ERR/i.test(code)
   );
 }
 
-// Retries a create+poll call with exponential backoff (3s, 6s, 12s) on transient
-// errors. Non-transient errors (bad model id, unreachable image url) throw at once.
-async function withTransientRetry(fn, { attempts = 4 } = {}) {
+// fetch() that retries transient network failures in place. This box's uplink
+// intermittently drops outbound TLS connections (ETIMEDOUT/ECONNRESET), so a bare
+// GET — resolving a model version, polling a prediction — would otherwise fail the
+// whole render on a single blip. Retries the request, not the surrounding work.
+async function fetchWithRetry(url, opts = {}, { attempts = 5 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fetch(url, opts);
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientReplicateError(err) || attempt === attempts) throw err;
+      await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 6000)));
+    }
+  }
+  throw lastErr;
+}
+
+// Builds the error thrown when Replicate rejects a `POST /predictions`. Carries
+// the HTTP status and, on a 429, the server's `retry-after` (seconds) so the
+// retry loop can wait exactly as long as Replicate asks instead of guessing.
+function createFailedError(res, data) {
+  const err = new Error(
+    `Replicate create failed (${res.status}): ${
+      data?.detail || data?.title || "unknown error"
+    }`,
+  );
+  err.status = res.status;
+  const ra = parseInt(res.headers.get("retry-after"), 10);
+  if (Number.isFinite(ra)) err.retryAfter = ra;
+  return err;
+}
+
+// Retries a create+poll call on transient errors. On a 429 the low-credit cap
+// (6/min, burst 1) returns `retry-after` — honor it (the fixed exponential
+// backoff retried too early and burned attempts before the window reset).
+// Non-transient errors (bad model id, unreachable image url) throw at once.
+async function withTransientRetry(fn, { attempts = 6 } = {}) {
   let lastErr;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (!isTransientReplicateError(err.message) || attempt === attempts) throw err;
-      await new Promise((r) => setTimeout(r, 3000 * 2 ** (attempt - 1)));
+      if (!isTransientReplicateError(err) || attempt === attempts) throw err;
+      // Throttle (429): honor the server's retry-after (+1s jitter). Otherwise a
+      // short capped backoff — network flakes clear on an immediate retry, so we
+      // don't want a long escalating wait (2s, 4s, 8s, 8s, 8s).
+      const waitMs = Number.isFinite(err.retryAfter)
+        ? (err.retryAfter + 1) * 1000
+        : Math.min(2000 * 2 ** (attempt - 1), 8000);
+      await new Promise((r) => setTimeout(r, waitMs));
     }
   }
   throw lastErr;
@@ -182,25 +230,52 @@ async function tryOn({ humanImageUrl, garmentImageUrl, garmentDes, category, api
     input.category = category;
   }
 
-  const createRes = await fetch(`${API_BASE}/predictions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ version, input }),
-  });
-  const created = await createRes.json();
-  if (!createRes.ok) {
-    // 422 with "version does not exist" is the classic wrong-model-id signal.
-    throw new Error(
-      `Replicate create failed (${createRes.status}): ${
-        created?.detail || created?.title || "unknown error"
-      }`,
-    );
-  }
+  return withTransientRetry(async () => {
+    const createRes = await fetch(`${API_BASE}/predictions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ version, input }),
+    });
+    const created = await createRes.json();
+    // 422 with "version does not exist" is the classic wrong-model-id signal;
+    // 429 is the low-credit throttle (createFailedError carries retry-after).
+    if (!createRes.ok) throw createFailedError(createRes, created);
 
-  const done = await poll(created.urls.get, headers);
-  const out = Array.isArray(done.output) ? done.output[done.output.length - 1] : done.output;
-  if (!out) throw new Error("Replicate returned no output image");
-  return out;
+    const done = await poll(created.urls.get, headers);
+    const out = Array.isArray(done.output) ? done.output[done.output.length - 1] : done.output;
+    if (!out) throw new Error("Replicate returned no output image");
+    return out;
+  });
+}
+
+/**
+ * Uploads a local image to Replicate's Files API and returns a Replicate-hosted
+ * URL usable directly as a prediction image input. This removes the dependency on
+ * a publicly reachable origin (ngrok): the model fetches the image from
+ * Replicate's own infra instead of our box, so renders no longer fail with
+ * "public image URL unreachable" / "Read timed out" when the tunnel is slow.
+ * @param {{ buffer:Buffer, filename?:string, contentType?:string, apiToken?:string }} args
+ * @returns {Promise<string>} a URL to pass as a model input
+ */
+async function uploadFile({ buffer, filename = "image.jpg", contentType = "image/jpeg", apiToken }) {
+  const token = apiToken || REPLICATE_API_TOKEN;
+  if (!token) {
+    throw Object.assign(new Error("REPLICATE_API_TOKEN not configured"), {
+      code: "REPLICATE_UNSET",
+    });
+  }
+  const form = new FormData();
+  form.append("content", new Blob([buffer], { type: contentType }), filename);
+  return withTransientRetry(async () => {
+    const res = await fetch(`${API_BASE}/files`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.urls?.get) throw createFailedError(res, data);
+    return data.urls.get;
+  });
 }
 
 /**
@@ -236,13 +311,7 @@ async function generateImage({ prompt, apiToken, model }) {
       body: JSON.stringify({ version, input }),
     });
     const created = await createRes.json();
-    if (!createRes.ok) {
-      throw new Error(
-        `Replicate create failed (${createRes.status}): ${
-          created?.detail || created?.title || "unknown error"
-        }`,
-      );
-    }
+    if (!createRes.ok) throw createFailedError(createRes, created);
 
     const done = await poll(created.urls.get, headers);
     const out = Array.isArray(done.output) ? done.output[0] : done.output;
@@ -395,13 +464,7 @@ async function composeOutfit({ imageUrls, prompt, apiToken, model }) {
       }),
     });
     const created = await createRes.json();
-    if (!createRes.ok) {
-      throw new Error(
-        `Replicate create failed (${createRes.status}): ${
-          created?.detail || created?.title || "unknown error"
-        }`,
-      );
-    }
+    if (!createRes.ok) throw createFailedError(createRes, created);
 
     const done = await poll(created.urls.get, headers);
     const out = Array.isArray(done.output) ? done.output[0] : done.output;
@@ -412,6 +475,7 @@ async function composeOutfit({ imageUrls, prompt, apiToken, model }) {
 
 module.exports = {
   tryOn,
+  uploadFile,
   generateImage,
   editImage,
   editImageWithRef,

@@ -17,8 +17,12 @@ async function getJson(url, options) {
   const res = await fetch(url, options);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    const err = new Error(data.error || `Request failed (HTTP ${res.status})`);
+    // Surface the server's `detail` (the real cause — e.g. a Replicate throttle
+    // message) so failures are diagnosable instead of showing only the generic line.
+    const msg = data.error || `Request failed (HTTP ${res.status})`;
+    const err = new Error(data.detail ? `${msg} (${data.detail})` : msg);
     err.status = res.status;
+    err.detail = data.detail || null;
     throw err;
   }
   return res.json();

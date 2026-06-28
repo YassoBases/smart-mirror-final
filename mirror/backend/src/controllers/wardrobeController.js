@@ -5,6 +5,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const sharp = require("sharp");
 
 const { getDb } = require("../config/database");
 const wardrobeDb = require("../../db/wardrobe");
@@ -262,6 +263,38 @@ function itemImageUrl(root, profileId, row) {
   return row.nobg_filename ? `${base}/${row.nobg_filename}` : null;
 }
 
+// Resolves a local image file to a URL the Replicate model can fetch. Uploads the
+// bytes straight to Replicate's Files API so the model pulls from Replicate's own
+// infra — NOT from our public tunnel (ngrok-free is slow enough that the model's
+// 10s image read times out, which is the top cause of "could not render"). Falls
+// back to the public URL only if the upload itself fails.
+async function modelImageUrl(localPath, apiToken, fallbackUrl) {
+  try {
+    // Downscale/compress before upload: this box's uplink is slow, so a multi-MB
+    // image takes a minute+ to leave it (and blows the render budget). A ~1024px
+    // JPEG is tens of KB — uploads in seconds and is ample resolution for the
+    // render. flatten() drops alpha (closet items are transparent PNGs) onto white,
+    // which is also the ideal product background; rotate() honors EXIF orientation.
+    const buffer = await sharp(fs.readFileSync(localPath))
+      .rotate()
+      .flatten({ background: "#ffffff" })
+      .resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+    return await replicate.uploadFile({
+      buffer,
+      filename: path.basename(localPath, path.extname(localPath)) + ".jpg",
+      apiToken,
+    });
+  } catch (err) {
+    console.warn(
+      "[wardrobe] Replicate upload failed, using public URL fallback:",
+      err.message,
+    );
+    return fallbackUrl;
+  }
+}
+
 // Rich, human-readable garment description for VTON — color + pattern + fabric +
 // subcategory (e.g. "navy striped cotton t-shirt"). A bare subcategory gives the
 // model almost nothing to work with, which is a top cause of weak try-on results.
@@ -335,7 +368,11 @@ async function renderOutfit(req, res, next) {
           continue;
         }
         garments.push({
-          publicUrl: itemImageUrl(publicBase, profileId, row),
+          publicUrl: await modelImageUrl(
+            path.join(wardrobeDb.itemDir(profileId, row.id), row.nobg_filename),
+            apiToken,
+            itemImageUrl(publicBase, profileId, row),
+          ),
           description: garmentDescription(row, row.category),
         });
       }
@@ -345,7 +382,11 @@ async function renderOutfit(req, res, next) {
           .json({ error: "None of the selected items have a usable image to render" });
       }
       try {
-        const bodyPublicUrl = `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`;
+        const bodyPublicUrl = await modelImageUrl(
+          bodyPath,
+          apiToken,
+          `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`,
+        );
         finalUrl = await nanoRenderOutfit({
           bodyPublicUrl,
           garments,
@@ -595,7 +636,11 @@ async function renderGeneratedOutfit(req, res, next) {
             );
             if (!p) continue;
             garmentRefs.push({
-              publicUrl: `${publicBase}/wardrobe/${profileId}/generated/${path.basename(p)}`,
+              publicUrl: await modelImageUrl(
+                p,
+                apiToken,
+                `${publicBase}/wardrobe/${profileId}/generated/${path.basename(p)}`,
+              ),
               description: garmentDescriptionFor(g),
             });
           }
@@ -605,7 +650,11 @@ async function renderGeneratedOutfit(req, res, next) {
 
           // 2) Dress the body in the generated garments with Nano Banana Pro,
           // which preserves the user's face/identity in a single pass.
-          const bodyPublicUrl = `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`;
+          const bodyPublicUrl = await modelImageUrl(
+            path.join(wardrobeDb.bodyDir(profileId), bodyFilename),
+            apiToken,
+            `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`,
+          );
           const outUrl = await nanoRenderOutfit({
             bodyPublicUrl,
             garments: garmentRefs,
