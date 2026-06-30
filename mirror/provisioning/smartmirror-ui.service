@@ -1,0 +1,17 @@
+[Unit]
+Description=Smart Mirror React UI (static, :3001)
+Documentation=https://github.com/YassoBases/Smart-Mirror-Combined
+After=network.target
+
+[Service]
+Type=simple
+# __MIRROR_DIR__ and __SERVE_BIN__ are rewritten to the real deploy location by
+# install-app.sh (the npm global prefix / serve path varies per system).
+ExecStart=__SERVE_BIN__ -s build -l 3001
+WorkingDirectory=__MIRROR_DIR__
+User=smartmirror
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

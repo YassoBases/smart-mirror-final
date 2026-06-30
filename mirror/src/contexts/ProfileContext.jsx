@@ -14,6 +14,7 @@ const DEFAULT_PROFILE = {
     news:     true,
     gmail:    false,
     spotify:  false,
+    wardrobe: true,
   },
   integrations: {
     gmail:   { connected: false, email: null },

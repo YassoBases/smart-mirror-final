@@ -50,6 +50,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       'gmail': false,
       'spotify': false,
       'gesture': true,
+      'wardrobe': true,
     };
   }
 
@@ -285,6 +286,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
             value: _widgets['spotify']!,
             activeThumbColor: Colors.blueAccent,
             onChanged: (val) => _toggleWidget('spotify', val),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Wardrobe
+        Card(
+          color: Colors.grey[900],
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: SwitchListTile(
+            title:
+                const Text('Wardrobe', style: TextStyle(color: Colors.white)),
+            subtitle: const Text(
+                'AI outfit suggestions from your closet with virtual try-on.',
+                style: TextStyle(color: Colors.white54)),
+            value: _widgets['wardrobe'] ?? true,
+            activeThumbColor: Colors.blueAccent,
+            onChanged: (val) => _toggleWidget('wardrobe', val),
           ),
         ),
         const SizedBox(height: 12),

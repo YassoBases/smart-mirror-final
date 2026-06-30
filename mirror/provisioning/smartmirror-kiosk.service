@@ -1,0 +1,20 @@
+[Unit]
+Description=Smart Mirror Kiosk (Chromium fullscreen on :3001)
+# A GUI app — only valid inside the labwc/Wayland user session, so it is started on
+# demand from ~/.config/labwc/autostart (when WAYLAND_DISPLAY is live), NOT wired to a
+# boot target: the user manager (Linger=yes) starts before Wayland and
+# graphical-session.target is inactive on this Pi. kiosk-launch.sh waits for the UI on
+# :3001 and sets Wayland env defaults, so startup is self-healing.
+#
+# Installed to ~/.config/systemd/user/ by install-app.sh (__MIRROR_DIR__ is rewritten).
+# Control it with `mirrorctl kiosk on|off|restart` or `systemctl --user {start,stop} smartmirror-kiosk`.
+PartOf=graphical-session.target
+# An appliance should never stop trying to bring the display back (disable rate-limit).
+# NOTE: StartLimitIntervalSec belongs in [Unit], not [Service].
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=__MIRROR_DIR__/provisioning/kiosk-launch.sh
+Restart=always
+RestartSec=3

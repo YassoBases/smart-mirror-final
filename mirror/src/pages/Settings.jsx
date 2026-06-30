@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useGuestMode } from '../contexts/GuestModeContext';
 import MirrorIdQRCode from '../components/MirrorIdQRCode';
 import GestureControl from '../components/GestureControl';
-import { apps, saveAppSettings, toggleAppEnabled } from '../data/apps';
+import { apps, saveAppSettings, toggleAppEnabled, isWidgetEnabled } from '../data/apps';
 import { getUsers, migrateUsersIfNeeded } from '../data/users';
 import { backendApi } from '../services/backendApi';
 import {
@@ -181,9 +181,7 @@ const Settings = () => {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const isAppEnabled = (appId) => {
-    return settings[appId]?.enabled !== false; // Default to true
-  };
+  const isAppEnabled = (appId) => isWidgetEnabled(appId, settings);
 
   const getAppSetting = (appId, settingKey, defaultValue) => {
     return settings[appId]?.settings?.[settingKey] ?? defaultValue;

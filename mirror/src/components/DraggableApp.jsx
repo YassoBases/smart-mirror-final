@@ -41,14 +41,30 @@ const DraggableApp = ({
     if (saved) {
       try {
         const { position: savedPos, size: savedSize, locked: savedLocked } = JSON.parse(saved);
-        if (savedPos) setPosition(savedPos);
-        if (savedSize) setSize(savedSize);
+        // Clamp a stale saved layout back into the current viewport so a widget can
+        // never be restored off-screen (e.g. after a display-resolution change or an
+        // earlier drag/resize to the edge). Mirrors the drag/resize clamps below.
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const nextSize = savedSize
+          ? {
+              width: Math.max(150, Math.min(vw, savedSize.width)),
+              height: Math.max(100, Math.min(vh, savedSize.height)),
+            }
+          : size;
+        if (savedSize) setSize(nextSize);
+        if (savedPos) {
+          setPosition({
+            x: Math.max(0, Math.min(vw - nextSize.width, savedPos.x)),
+            y: Math.max(0, Math.min(vh - nextSize.height, savedPos.y)),
+          });
+        }
         if (savedLocked !== undefined) setLocked(savedLocked);
       } catch (e) {
         console.error('Error loading saved layout:', e);
       }
     }
-  }, [appId]);
+  }, [appId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync position with external position when provided (hand-tracking drag)
   useEffect(() => {

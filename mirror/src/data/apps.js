@@ -72,7 +72,7 @@ export const apps = [
     name: 'Wardrobe',
     description: 'AI outfit suggestions from your closet with virtual try-on',
     componentPath: 'WardrobeWidget',
-    enabled: false,
+    enabled: true,
     defaultPosition: { x: 760, y: 380 },
     defaultSize: { width: 360, height: 480 },
     settings: {}
@@ -104,9 +104,19 @@ export const apps = [
   }
 ];
 
+// Resolve a widget's visibility. An explicit localStorage `enabled` (set via the
+// Settings toggle or backend/phone sync) always wins; otherwise fall back to the
+// app's registry `enabled` default so apps.js is the single source of truth.
+export const isWidgetEnabled = (appId, settings) => {
+  const s = settings || JSON.parse(localStorage.getItem('smartMirrorSettings') || '{}');
+  const stored = s[appId]?.enabled;
+  if (stored !== undefined) return stored !== false;
+  return apps.find(a => a.id === appId)?.enabled !== false;
+};
+
 export const getEnabledApps = () => {
   const settings = JSON.parse(localStorage.getItem('smartMirrorSettings') || '{}');
-  return apps.filter(app => settings[app.id]?.enabled !== false);
+  return apps.filter(app => isWidgetEnabled(app.id, settings));
 };
 
 export const getAppSettings = (appId) => {

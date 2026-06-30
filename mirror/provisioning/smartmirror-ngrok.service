@@ -1,0 +1,19 @@
+[Unit]
+Description=Smart Mirror ngrok tunnel (Gmail OAuth callback)
+Documentation=https://github.com/YassoBases/Smart-Mirror-Combined
+# Requires internet — only start when the network is fully online.
+After=network-online.target smartmirror-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# __NGROK_BIN__ and __MIRROR_DIR__ are rewritten to the real deploy location by install-app.sh.
+ExecStart=__NGROK_BIN__ http --url=https://lifting-purplish-subsidize.ngrok-free.dev 3000
+WorkingDirectory=__MIRROR_DIR__
+User=smartmirror
+# Longer restart delay: ngrok free accounts rate-limit rapid reconnects.
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

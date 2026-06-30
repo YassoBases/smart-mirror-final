@@ -4,7 +4,7 @@ import DraggableApp from '../components/DraggableApp';
 import CursorOverlay from '../components/CursorOverlay';
 import HandTrackingService from '../components/HandTrackingService';
 import AIAssistantOverlay from '../components/AIAssistantOverlay';
-import { apps, getAppSettings } from '../data/apps';
+import { apps, getAppSettings, isWidgetEnabled } from '../data/apps';
 import { getGeneralSettings, getAccentOption, getFontOption } from '../data/generalSettings';
 import { useAIAssistant } from '../hooks/useAIAssistant';
 import useActiveUser from '../hooks/useActiveUser';
@@ -385,8 +385,8 @@ const SmartMirror = () => {
   useEffect(() => {
     const evaluateWidgets = () => {
       const localSettings = JSON.parse(localStorage.getItem('smartMirrorSettings') || '{}');
-      // An app is locally enabled when its enabled flag is absent (never set) or true
-      const localEnabled = (appId) => localSettings[appId]?.enabled !== false;
+      // Visibility: an explicit local `enabled` wins; otherwise the registry default (apps.js).
+      const localEnabled = (appId) => isWidgetEnabled(appId, localSettings);
 
       const visible = apps.filter(app => {
         if (app.isBackgroundService) return false;

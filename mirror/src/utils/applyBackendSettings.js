@@ -33,6 +33,9 @@ export function applyBackendSettings(settings) {
   if (w.spotify !== undefined) {
     stored.spotify = { ...stored.spotify, enabled: w.spotify };
   }
+  if (w.wardrobe !== undefined) {
+    stored.wardrobe = { ...stored.wardrobe, enabled: w.wardrobe };
+  }
   if (w.gesture !== undefined) {
     stored.general = { ...stored.general, gestureEnabled: w.gesture };
   }

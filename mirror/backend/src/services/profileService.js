@@ -18,6 +18,7 @@ async function createProfile({ householdId, name, email }) {
     gmail: false,
     spotify: false,
     gesture: true,
+    wardrobe: true,
   });
 
   const result = await db.run(

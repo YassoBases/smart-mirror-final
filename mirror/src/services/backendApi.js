@@ -270,7 +270,7 @@ export const backendApi = {
   // Normalizes both legacy and full backend profile shapes into one structure
   _normalizeProfile: (raw) => {
     const defaults = {
-      settings: { datetime: true, weather: true, news: true, gmail: false, spotify: false },
+      settings: { datetime: true, weather: true, news: true, gmail: false, spotify: false, wardrobe: true },
       integrations: { gmail: { connected: false, email: null }, spotify: { connected: false } },
       location: { city: 'Istanbul', country: null, lat: null, lon: null },
       preferences: { units: 'celsius', newsSources: ['bbc', 'trt'], language: 'en' },

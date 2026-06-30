@@ -1,0 +1,20 @@
+[Unit]
+Description=Smart Mirror Backend (HTTP :3000 / WS :4000)
+Documentation=https://github.com/YassoBases/Smart-Mirror-Combined
+# After network.target, NOT network-online: the mirror must boot offline and show
+# SetupMode for first-run BLE provisioning. The backend is reachable on LAN as soon
+# as NetworkManager brings up the interface.
+After=network.target
+
+[Service]
+Type=simple
+# __MIRROR_DIR__ and __NODE_BIN__ are rewritten to the real deploy location by install-app.sh.
+ExecStart=__NODE_BIN__ backend/server.js
+WorkingDirectory=__MIRROR_DIR__
+User=smartmirror
+Environment=NODE_ENV=production
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

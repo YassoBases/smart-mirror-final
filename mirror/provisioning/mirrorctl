@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+#
+# mirrorctl — one command to control the Smart Mirror appliance.
+#
+#   mirrorctl on        Enable + start the whole stack (services + kiosk). Appliance mode.
+#   mirrorctl off       Stop the whole stack now. Units stay ENABLED, so a reboot returns to
+#                       appliance mode. Use this while developing so the kiosk stops respawning.
+#   mirrorctl disable   Stop AND keep it off across reboots (disable units + set kiosk flag).
+#   mirrorctl restart   Restart all services + the kiosk.
+#   mirrorctl status    Show every unit + the kiosk + a quick port probe.
+#   mirrorctl kiosk on|off|restart   Control just the Chromium kiosk (services untouched).
+#   mirrorctl logs [name]            Follow logs (default: backend; "kiosk" => user journal).
+#   mirrorctl build                  Rebuild the UI, then reload it + the kiosk (deploy step).
+#
+# Backend services are systemd *system* units (need sudo — passwordless on this Pi). The
+# kiosk is a systemd *user* service (no sudo). smartmirror-ble-setup (WiFi provisioning /
+# recovery) is intentionally left running so the Pi can never strand itself offline.
+#
+# Dev workflow:  mirrorctl off   then   cd <repo>/mirror && ./start-mirror.sh   (hot reload)
+#
+set -uo pipefail
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# App/system units toggled by on/off (start order; backend first, ngrok last).
+SYS_UNITS=(
+  smartmirror-backend
+  smartmirror-classifier
+  smartmirror-bgremover
+  smartmirror-prefranker
+  smartmirror-sync
+  smartmirror-ui
+  smartmirror-ngrok
+)
+KIOSK_UNIT="smartmirror-kiosk.service"
+FLAG_DIR="$HOME/.config/smartmirror"
+KIOSK_FLAG="$FLAG_DIR/kiosk.disabled"
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+PROV="$(cd "$(dirname "$SELF")" && pwd)"
+MIRROR_DIR="$(cd "$PROV/.." && pwd)"
+
+c_grn=$'\e[32m'; c_red=$'\e[31m'; c_dim=$'\e[2m'; c_off=$'\e[0m'
+
+sys() { sudo systemctl "$@"; }
+usr() { systemctl --user "$@"; }
+
+kiosk_start() { mkdir -p "$FLAG_DIR"; rm -f "$KIOSK_FLAG"; usr start "$KIOSK_UNIT"; }
+kiosk_stop()  { usr stop "$KIOSK_UNIT" 2>/dev/null || true; }
+
+probe() { # name port
+  local name=$1 port=$2
+  if timeout 1 bash -c "exec 3<>/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+    printf '  %-11s :%-5s %sUP%s\n'   "$name" "$port" "$c_grn" "$c_off"
+  else
+    printf '  %-11s :%-5s %sdown%s\n' "$name" "$port" "$c_red" "$c_off"
+  fi
+}
+
+cmd_status() {
+  local u st
+  echo "── services ───────────────────────────────"
+  for u in "${SYS_UNITS[@]}" smartmirror-ble-setup; do
+    st="$(systemctl is-active "$u" 2>/dev/null || true)"
+    if [ "$st" = active ]; then printf '  %-28s %sactive%s\n' "$u" "$c_grn" "$c_off"
+    else printf '  %-28s %s%s%s\n' "$u" "$c_red" "${st:-unknown}" "$c_off"; fi
+  done
+  st="$(usr is-active "$KIOSK_UNIT" 2>/dev/null || true)"
+  if [ "$st" = active ]; then printf '  %-28s %sactive%s\n' "$KIOSK_UNIT (user)" "$c_grn" "$c_off"
+  else printf '  %-28s %s%s%s\n' "$KIOSK_UNIT (user)" "$c_red" "${st:-inactive}" "$c_off"; fi
+  [ -e "$KIOSK_FLAG" ] && echo "  ${c_dim}kiosk.disabled flag set — kiosk will NOT auto-start on boot${c_off}"
+  echo "── ports ──────────────────────────────────"
+  probe backend 3000; probe ui 3001; probe sync 4002
+  probe bgremover 8001; probe prefranker 8002; probe classifier 8003
+}
+
+cmd_on() {
+  echo "Starting Smart Mirror appliance…"
+  sys enable --now "${SYS_UNITS[@]}" || true
+  kiosk_start || true
+  echo; cmd_status
+}
+
+cmd_off() {
+  echo "Stopping Smart Mirror (kiosk + services)…"
+  kiosk_stop
+  sys stop "${SYS_UNITS[@]}" || true
+  echo "Stopped. Units stay enabled — a reboot returns to appliance mode."
+  echo "Hot-reload dev:  cd $MIRROR_DIR && ./start-mirror.sh"
+}
+
+cmd_disable() {
+  echo "Stopping and disabling across reboots…"
+  mkdir -p "$FLAG_DIR"; touch "$KIOSK_FLAG"
+  kiosk_stop
+  sys disable --now "${SYS_UNITS[@]}" || true
+  echo "Disabled. Run 'mirrorctl on' to restore appliance mode."
+}
+
+cmd_restart() {
+  sys restart "${SYS_UNITS[@]}" || true
+  usr restart "$KIOSK_UNIT" 2>/dev/null || kiosk_start || true
+  echo; cmd_status
+}
+
+cmd_kiosk() {
+  case "${1:-}" in
+    on)      kiosk_start ;;
+    off)     kiosk_stop; echo "Kiosk stopped (services still running)." ;;
+    restart) usr restart "$KIOSK_UNIT" 2>/dev/null || kiosk_start ;;
+    *) echo "usage: mirrorctl kiosk on|off|restart" >&2; exit 2 ;;
+  esac
+}
+
+cmd_logs() {
+  local n="${1:-backend}"
+  if [ "$n" = kiosk ]; then exec journalctl --user -u "$KIOSK_UNIT" -f
+  else exec sudo journalctl -u "smartmirror-$n" -f; fi
+}
+
+cmd_build() {
+  ( cd "$MIRROR_DIR" && npm run build ) || { echo "build failed" >&2; exit 1; }
+  sys restart smartmirror-ui || true
+  # Purge Chromium's HTTP caches (NOT localStorage/profile) between stop and start, so a
+  # freshly built bundle can never be masked by a stale cached index.html or asset.
+  kiosk_stop
+  rm -rf "$HOME/.config/chromium-kiosk/Default/Cache" \
+         "$HOME/.config/chromium-kiosk/Default/Code Cache" \
+         "$HOME/.config/chromium-kiosk/Default/GPUCache" 2>/dev/null || true
+  kiosk_start || true
+  echo "Rebuilt UI, cleared kiosk HTTP cache, and reloaded the kiosk."
+}
+
+case "${1:-status}" in
+  on)      cmd_on ;;
+  off)     cmd_off ;;
+  disable) cmd_disable ;;
+  restart) cmd_restart ;;
+  status)  cmd_status ;;
+  kiosk)   shift; cmd_kiosk "$@" ;;
+  logs)    shift; cmd_logs "$@" ;;
+  build)   cmd_build ;;
+  -h|--help|help) sed -n '2,20p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+  *) echo "usage: mirrorctl {on|off|disable|restart|status|kiosk|logs|build}" >&2; exit 2 ;;
+esac
