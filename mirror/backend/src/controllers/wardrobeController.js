@@ -330,6 +330,7 @@ async function renderOutfit(req, res, next) {
       return res.json({
         renderUrl: `${serverRoot(req)}/wardrobe/${profileId}/renders/${cached.render_filename}`,
         fromCache: true,
+        hostedRenderCount: 0, imagesSent: 0,
       });
     }
 
@@ -357,6 +358,7 @@ async function renderOutfit(req, res, next) {
     const vtonConfigured = !!apiToken || replicate.isConfigured();
     let finalUrl = bodyUrl;
     let vtonRan = false;
+    let imagesSent = 0;
 
     if (vtonConfigured) {
       // Build the garment list from each item's background-removed image; Nano
@@ -387,6 +389,7 @@ async function renderOutfit(req, res, next) {
           apiToken,
           `${publicBase}/wardrobe/${profileId}/body/${bodyFilename}`,
         );
+        imagesSent = garments.length + 1;
         finalUrl = await nanoRenderOutfit({
           bodyPublicUrl,
           garments,
@@ -445,6 +448,7 @@ async function renderOutfit(req, res, next) {
     res.json({
       renderUrl: `${serverRoot(req)}/wardrobe/${profileId}/renders/${filename}`,
       fromCache: false,
+      hostedRenderCount: vtonRan ? 1 : 0, imagesSent,
     });
   } catch (err) {
     next(err);
