@@ -67,3 +67,22 @@ export function stopPoseTracking(handle) {
   Promise.resolve(handle.ready).then(() => handle.inFlight).catch(() => {}).finally(() => handle.pose?.close()).catch(() => {});
 }
 
+// The slow path uses a saved body photo. Its landmarks must be measured on that
+// image, rather than assuming the live camera was in the same pose.
+export async function estimateImagePose(url) {
+  const image = new Image();
+  image.crossOrigin = 'anonymous';
+  await new Promise((resolve, reject) => {
+    image.onload = resolve; image.onerror = () => reject(new Error('Cannot read keyframe pose.')); image.src = url;
+  });
+  const pose = new Pose({ locateFile: name => `${process.env.PUBLIC_URL || ''}/mediapipe/pose/${name}` });
+  try {
+    pose.setOptions({ modelComplexity: 0, smoothLandmarks: false, enableSegmentation: false });
+    let result;
+    pose.onResults(value => { result = garmentLandmarks(value.poseLandmarks); });
+    await pose.initialize(); await pose.send({ image });
+    if (!result?.visible) throw new Error('The saved image has no visible torso. Showing the still image.');
+    return result;
+  } finally { await pose.close(); }
+}
+
