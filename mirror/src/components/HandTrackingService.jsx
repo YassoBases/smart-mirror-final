@@ -1,3 +1,4 @@
+import { publishCameraVideo, releaseCameraVideo } from '../services/cameraStream';
 import { useRef, useEffect, useState } from 'react';
 import { Hands } from '@mediapipe/hands';
 import { Camera } from '@mediapipe/camera_utils';
@@ -229,6 +230,7 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
   useEffect(() => {
     if (!isEnabled) {
       if (cameraRef.current) {
+        releaseCameraVideo(videoRef.current);
         cameraRef.current.stop();
         cameraRef.current = null;
       }
@@ -313,6 +315,7 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
 
           try {
             await cameraInstance.start();
+            publishCameraVideo(videoRef.current);
             cameraRef.current = cameraInstance;
           } catch (camErr) {
             console.error('[Camera] start failed:', camErr?.name, camErr?.message);
@@ -327,6 +330,7 @@ const HandTrackingService = ({ onHandPosition, onFaceDetected, settings = {}, en
 
     return () => {
       if (cameraRef.current) {
+        releaseCameraVideo(videoRef.current);
         cameraRef.current.stop();
         cameraRef.current = null;
       }

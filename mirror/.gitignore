@@ -21,3 +21,6 @@ build/
 
 # Python bytecode (Pi provisioning)
 __pycache__/
+
+# Built from the pinned browser Pose dependency.
+/public/mediapipe/pose/
