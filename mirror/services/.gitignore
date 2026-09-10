@@ -7,10 +7,10 @@ pref_ranker/models/*.lgb
 adapter_blip_base/
 adapter/
 *.safetensors
-blip2_captioner/clip_attr_model/
-blip2_captioner/clip_attr_dfmm/
-blip2_captioner/_dfmm_fixture/
-blip2_captioner/data/
-blip2_captioner/_cache_dfmm_*.pt
-blip2_captioner/_cache_dfmm_*.pt
-blip2_captioner/clip_attr_dfmm*/
+wardrobe_attr/clip_attr_model/
+wardrobe_attr/clip_attr_dfmm/
+wardrobe_attr/_dfmm_fixture/
+wardrobe_attr/data/
+wardrobe_attr/_cache_dfmm_*.pt
+wardrobe_attr/_cache_dfmm_*.pt
+wardrobe_attr/clip_attr_dfmm*/

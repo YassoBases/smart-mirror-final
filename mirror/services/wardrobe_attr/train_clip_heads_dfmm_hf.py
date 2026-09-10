@@ -7,7 +7,7 @@ and it has pure color patterns"). Labels are parsed from the caption for the
 
   python train_clip_heads_dfmm_hf.py --train 6000 --eval 600 --out ./clip_attr_dfmm
   # serve ensembled with the category model:
-  BLIP2_MODEL_DIR="./clip_attr_model,./clip_attr_dfmm" uvicorn serve_clip:app --port 8003
+  WARDROBE_ATTR_MODEL_DIR="./clip_attr_model,./clip_attr_dfmm" uvicorn serve_clip:app --port 8003
 
 (train_clip_heads_dfmm.py is the equivalent for a local DFMM txt-annotation download.)
 """

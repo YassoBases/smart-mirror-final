@@ -3,7 +3,7 @@
 - [tools/seed_demo_wardrobe.js](../../tools/seed_demo_wardrobe.js) — seeds a "Demo"
   profile (linked to mirror id `demo-mirror`) with **32 items** from
   [tools/demo_assets/manifest.json](../../tools/demo_assets/manifest.json). Reuses
-  the real upload pipeline (resize/thumb) with bg-removal/BLIP-2 in fast fallback;
+  the real upload pipeline (resize/thumb) with bg-removal/CLIP attribute classifier in fast fallback;
   synthesizes color-swatch placeholders for any missing CC image. Idempotent
   (clears + reseeds). **Verified:** seeded 32 items.
 - [tools/synthetic_feedback.js](../../tools/synthetic_feedback.js) — seeds **36**

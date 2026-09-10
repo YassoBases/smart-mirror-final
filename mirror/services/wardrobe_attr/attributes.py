@@ -1,7 +1,7 @@
-"""Shared attribute schema for the BLIP-2 captioner.
+"""Shared attribute schema for the CLIP attribute classifier captioner.
 
 Keeps the fine-tune target and the serving output in lockstep so the deployed
-endpoint emits exactly the item-attribute shape the backend's blip2_client expects
+endpoint emits exactly the item-attribute shape the backend's wardrobe_attr_client expects
 (see docs/wardrobe/01_api_contract.md §2). The model is trained to emit JSON for
 the six visually-grounded fields below; serve.py augments that with pixel-derived
 colors and rule-derived category/warmth/seasons.
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict
 
-# The six fields BLIP-2 is fine-tuned to predict (visually grounded).
+# The six fields CLIP attribute classifier is fine-tuned to predict (visually grounded).
 TARGET_FIELDS = ["subcategory", "fabric", "formality", "neckline", "sleeveLength", "pattern"]
 
 VALID_CATEGORIES = ["top", "bottom", "outerwear", "footwear", "accessory"]

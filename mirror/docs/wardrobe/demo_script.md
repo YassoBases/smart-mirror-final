@@ -12,7 +12,7 @@ A gesture-by-gesture, screen-by-screen script. Times are guidance.
    node tools/synthetic_feedback.js      # 36 feedback rows + a trained-at boundary
    ```
    (Optional, for real VTON: set `REPLICATE_API_TOKEN` + `PUBLIC_BASE_URL` (ngrok)
-   in `backend/.env`. Optional, for real attributes: set `BLIP2_ENDPOINT_URL`.)
+   in `backend/.env`. Optional, for real attributes: set `WARDROBE_ATTR_ENDPOINT_URL`.)
 3. Mirror UI running (`npm start`); enable the **Wardrobe** widget in settings.
 4. Open the dashboard in a second tab: `http://<host>:3000/admin/wardrobe/?mid=demo-mirror`.
 

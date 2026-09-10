@@ -1,4 +1,4 @@
-"""Convert a fashion captioning dataset into BLIP-2 LoRA JSONL.
+"""Convert fashion annotations into attribute JSONL; share mappings with local DFMM training.
 
 Default source: **DeepFashion-MultiModal** (rich per-image shape + fabric +
 pattern annotations). Alternatives the team can swap in:
@@ -130,7 +130,7 @@ def split_and_write(examples: List[Dict], out_dir: str, seed: int = 42) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Prepare BLIP-2 LoRA JSONL from a fashion dataset")
+    p = argparse.ArgumentParser(description="Prepare attribute JSONL from a fashion dataset")
     p.add_argument("--source", required=True, help="Dataset root (default layout: DeepFashion-MultiModal)")
     p.add_argument("--out", default="./data", help="Output dir for {train,val,test}.jsonl")
     p.add_argument("--seed", type=int, default=42)

@@ -59,7 +59,7 @@ Point the app at the backend (scan the mirror QR or enter the URL in settings).
 ## Notes
 - Dependencies, virtualenvs, build output, runtime `data/`, and `.env` files are
   git-ignored. Trained CLIP attribute heads under
-  `mirror/services/blip2_captioner/clip_attr_*` are committed (small) so the
+  `mirror/services/wardrobe_attr/clip_attr_*` are committed (small) so the
   captioner works out of the box.
 - The outfit stylist and the voice assistant share one household OpenAI key,
   configurable from either the app or the mirror Settings page.

@@ -1,6 +1,6 @@
 // Runs before each test file. Isolates the DB (in-memory), the image output dir
 // (a temp folder), and pins JWT_SECRET. Sidecar URLs are left unset so the
-// upload pipeline exercises its bg-removal / BLIP-2 fallbacks deterministically.
+// upload pipeline exercises its bg-removal / CLIP attribute classifier fallbacks deterministically.
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
@@ -12,5 +12,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wardrobe-test-"));
 process.env.WARDROBE_DATA_DIR = tmp;
 
 delete process.env.BG_REMOVER_URL;
+delete process.env.WARDROBE_ATTR_ENDPOINT_URL;
+// Clear the compatibility alias as well to keep fixtures offline.
 delete process.env.BLIP2_ENDPOINT_URL;
 delete process.env.PREF_RANKER_URL;

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Re-run the BLIP-2 classifier over existing wardrobe items.
+// Re-run the CLIP attribute classifier classifier over existing wardrobe items.
 //
-// Why: items uploaded while BLIP2_ENDPOINT_URL was unset got the stub fallback
+// Why: items uploaded while WARDROBE_ATTR_ENDPOINT_URL was unset got the stub fallback
 // (everything "top", or "bottom" for very tall photos). Once the endpoint is
 // configured again, this re-captions each stored garment from its nobg.png and
 // updates the DB — but ONLY when the endpoint actually responds, so it never
@@ -13,7 +13,7 @@
 //   node scripts/reclassify_wardrobe.js --profile 1
 //   node scripts/reclassify_wardrobe.js --only-stub  # only items still top/bottom
 //
-// Reads the same .env the server uses, so set BLIP2_ENDPOINT_URL/TOKEN first.
+// Reads the same .env the server uses, so set WARDROBE_ATTR_ENDPOINT_URL/TOKEN first.
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 
@@ -23,7 +23,7 @@ const sharp = require("sharp");
 
 const { getDb } = require("../src/config/database");
 const wardrobeDb = require("../db/wardrobe");
-const blip2 = require("../lib/blip2_client");
+const wardrobeAttr = require("../lib/wardrobe_attr_client");
 const aiVision = require("../lib/openai");
 
 function parseArgs(argv) {
@@ -40,9 +40,9 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv);
 
-  if (!blip2.isConfigured()) {
+  if (!wardrobeAttr.isConfigured()) {
     console.error(
-      "✗ BLIP2_ENDPOINT_URL is not set. Configure it in mirror/backend/.env\n" +
+      "✗ WARDROBE_ATTR_ENDPOINT_URL is not set. Configure it in mirror/backend/.env\n" +
         "  before running — otherwise every item would just be re-stubbed as 'top'.",
     );
     process.exit(1);
@@ -91,7 +91,7 @@ async function main() {
       const categoryHint =
         meta.height > meta.width * 1.4 ? "bottom" : undefined;
 
-      let { attributes, available } = await blip2.captionImage(buf, {
+      let { attributes, available } = await wardrobeAttr.captionImage(buf, {
         categoryHint,
       });
 
@@ -118,7 +118,7 @@ async function main() {
           mimeType: "image/jpeg",
           current: attributes,
         });
-        if (corrected) attributes = blip2.normalizeAttributes(corrected, attributes);
+        if (corrected) attributes = wardrobeAttr.normalizeAttributes(corrected, attributes);
       } catch (err) {
         console.warn(`  • item ${row.id}: vision verify skipped — ${err.message}`);
       }

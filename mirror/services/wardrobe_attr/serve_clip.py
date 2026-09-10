@@ -1,14 +1,9 @@
-"""Inference endpoint for the LOCAL CLIP-heads attribute model (Option B).
+"""Frozen CLIP encoder plus both committed attribute head-sets.
 
-Serves the model trained by train_clip_heads.py with the SAME contract as
-serve.py / blip2_client: POST an image, get back the §2 item-attribute shape.
-Put this endpoint's URL in BLIP2_ENDPOINT_URL.
-
-  BLIP2_MODEL_DIR=./clip_attr_model uvicorn serve_clip:app --host 0.0.0.0 --port 8003
-
-The CLIP heads predict category, subcategory, and formality; colors come from
-pixels; pattern/fabric/warmth/seasons are rule/default (this dataset doesn't
-label them — DeepFashion-MultiModal + dataset_prep.py extend the heads to those).
+POST an image to / for the existing wardrobe attribute response contract.
+Colors are pixel-derived; warmth/seasons are rules. The backend can optionally
+apply a separate OpenAI image-verification pass after these local predictions.
+Legacy environment aliases are retained; explicitly set new names take priority.
 """
 from __future__ import annotations
 
@@ -27,15 +22,16 @@ from clip_heads import ClipAttr
 # category/subcategory/formality heads, the second adds pattern/fabric/etc. Both
 # share one frozen CLIP encoder (loaded once). Defaults to both committed
 # head-sets: clip_attr_model (category/subcategory/formality) + clip_attr_dfmm
-# (pattern/fabric/sleeve/neckline). Override with BLIP2_MODEL_DIR.
+# (pattern/fabric/sleeve/neckline). Override with WARDROBE_ATTR_MODEL_DIR.
 _HERE = os.path.dirname(__file__)
 MODEL_DIR = os.environ.get(
-    "BLIP2_MODEL_DIR",
-    f"{os.path.join(_HERE, 'clip_attr_model')},{os.path.join(_HERE, 'clip_attr_dfmm')}",
+    "WARDROBE_ATTR_MODEL_DIR",
+    os.environ.get("BLIP2_MODEL_DIR",
+        f"{os.path.join(_HERE, 'clip_attr_model')},{os.path.join(_HERE, 'clip_attr_dfmm')}"),
 )
-TOKEN = os.environ.get("BLIP2_ENDPOINT_TOKEN", "")
+TOKEN = os.environ.get("WARDROBE_ATTR_ENDPOINT_TOKEN", os.environ.get("BLIP2_ENDPOINT_TOKEN", ""))
 
-app = FastAPI(title="blip2_captioner (clip-heads)")
+app = FastAPI(title="wardrobe_attr")
 _model = None
 _sets = None
 

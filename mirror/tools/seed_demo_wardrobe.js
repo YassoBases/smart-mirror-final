@@ -12,7 +12,7 @@
  * swatch from `primaryColor`, so the demo works out-of-the-box.
  *
  * Runs the real upload pipeline (wardrobeImageService) for resize/thumb; the
- * bg-removal and BLIP-2 steps fall back automatically because their env vars are
+ * bg-removal and CLIP attribute classifier steps fall back automatically because their env vars are
  * intentionally left unset here (no network, fast).
  */
 const fs = require("fs");
@@ -20,6 +20,8 @@ const path = require("path");
 
 // Keep the sidecar/AI calls in fast fallback for seeding.
 delete process.env.BG_REMOVER_URL;
+delete process.env.WARDROBE_ATTR_ENDPOINT_URL;
+// Clear the compatibility alias as well to keep fixtures offline.
 delete process.env.BLIP2_ENDPOINT_URL;
 
 const ROOT = path.join(__dirname, "..");

@@ -6,7 +6,7 @@ architecture, and saves a head-set you ensemble with the category/subcategory
 model at serve time:
 
   python train_clip_heads_dfmm.py --source /data/DeepFashion-MultiModal --out ./clip_attr_dfmm
-  # then serve both: BLIP2_MODEL_DIR="./clip_attr_model,./clip_attr_dfmm" uvicorn serve_clip:app ...
+  # then serve both: WARDROBE_ATTR_MODEL_DIR="./clip_attr_model,./clip_attr_dfmm" uvicorn serve_clip:app ...
 
 Trains the attributes DFMM labels (pattern, fabric, sleeveLength, neckline);
 missing labels fall into an 'unknown' class.

@@ -121,7 +121,7 @@ async function generateOutfits({ context, count = 3 }) {
 // subcategory/colors/pattern when the image contradicts them. This runs IN
 // ADDITION to CLIP (not a fallback): CLIP is fast/local, this is the accuracy
 // check on top. Returns the raw corrected attributes (the caller coerces+merges
-// via blip2.normalizeAttributes) or null when no OpenAI key is configured / the
+// via wardrobeAttr.normalizeAttributes) or null when no OpenAI key is configured / the
 // verify toggle is off — in which case the caller keeps the CLIP result.
 
 const VISION_SYSTEM_PROMPT =

@@ -1,15 +1,15 @@
-// Client for the fine-tuned BLIP-2 captioner endpoint (services/blip2_captioner,
-// deployed externally on Colab/RunPod). POSTs a garment image and returns the
+// Client for the frozen-CLIP attribute service (services/wardrobe_attr). POSTs a garment image and returns the
 // structured attribute JSON matching the item attribute shape in the API
 // contract (§2 of docs/wardrobe/01_api_contract.md).
 //
-// Stub fallback: if BLIP2_ENDPOINT_URL is unset, returns conservative defaults
+// Stub fallback: if WARDROBE_ATTR_ENDPOINT_URL is unset, returns conservative defaults
 // with available=false so the route can set aiAttributesAvailable=false and the
 // app can prompt the user to fill attributes in. This keeps the upload pipeline
 // working before the model is deployed.
 
-const BLIP2_ENDPOINT_URL = process.env.BLIP2_ENDPOINT_URL || "";
-const BLIP2_ENDPOINT_TOKEN = process.env.BLIP2_ENDPOINT_TOKEN || "";
+// Legacy environment aliases: new names win even when explicitly empty.
+const WARDROBE_ATTR_ENDPOINT_URL = process.env.WARDROBE_ATTR_ENDPOINT_URL ?? process.env.BLIP2_ENDPOINT_URL ?? "";
+const WARDROBE_ATTR_ENDPOINT_TOKEN = process.env.WARDROBE_ATTR_ENDPOINT_TOKEN ?? process.env.BLIP2_ENDPOINT_TOKEN ?? "";
 
 const VALID_CATEGORIES = ["top", "bottom", "outerwear", "footwear", "accessory"];
 const VALID_PATTERNS = ["solid", "stripe", "plaid", "print", "other"];
@@ -26,7 +26,7 @@ function currentSeason(date = new Date()) {
 }
 
 /**
- * Conservative defaults used when BLIP-2 is unavailable. `category` may be
+ * Conservative defaults used when CLIP attribute classifier is unavailable. `category` may be
  * hinted from the upload's aspect ratio (tall → likely a full garment/bottom).
  */
 function stubAttributes({ categoryHint } = {}) {
@@ -77,7 +77,7 @@ function normalizeAttributes(raw, fallback) {
 async function captionImage(buffer, opts = {}) {
   const fallback = stubAttributes(opts);
 
-  if (!BLIP2_ENDPOINT_URL) {
+  if (!WARDROBE_ATTR_ENDPOINT_URL) {
     return { attributes: fallback, available: false };
   }
 
@@ -86,21 +86,21 @@ async function captionImage(buffer, opts = {}) {
     form.append("image", new Blob([buffer], { type: "image/png" }), "item.png");
 
     const headers = {};
-    if (BLIP2_ENDPOINT_TOKEN) {
-      headers.Authorization = `Bearer ${BLIP2_ENDPOINT_TOKEN}`;
+    if (WARDROBE_ATTR_ENDPOINT_TOKEN) {
+      headers.Authorization = `Bearer ${WARDROBE_ATTR_ENDPOINT_TOKEN}`;
     }
 
-    const res = await fetch(BLIP2_ENDPOINT_URL.replace(/\/$/, ""), {
+    const res = await fetch(WARDROBE_ATTR_ENDPOINT_URL.replace(/\/$/, ""), {
       method: "POST",
       headers,
       body: form,
     });
-    if (!res.ok) throw new Error(`BLIP-2 endpoint returned ${res.status}`);
+    if (!res.ok) throw new Error(`CLIP attribute classifier endpoint returned ${res.status}`);
     const raw = await res.json();
     return { attributes: normalizeAttributes(raw, fallback), available: true };
   } catch (err) {
     // Endpoint down / misconfigured — degrade to stub rather than failing upload.
-    console.warn("[blip2_client] caption failed, using stub:", err.message);
+    console.warn("[wardrobe_attr_client] caption failed, using stub:", err.message);
     return { attributes: fallback, available: false };
   }
 }
@@ -110,5 +110,5 @@ module.exports = {
   stubAttributes,
   normalizeAttributes,
   currentSeason,
-  isConfigured: () => !!BLIP2_ENDPOINT_URL,
+  isConfigured: () => !!WARDROBE_ATTR_ENDPOINT_URL,
 };

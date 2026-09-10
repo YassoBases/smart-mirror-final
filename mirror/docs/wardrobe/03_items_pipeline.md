@@ -27,7 +27,7 @@ image-mimetype filter):
 2. Resize the original to ≤ 1024px longest edge (EXIF-rotated) → `original.jpg`.
 3. Background removal via the **bg_remover** sidecar (`BG_REMOVER_URL`) → `nobg.png`.
 4. Thumbnail from the nobg image (alpha flattened to white) → `thumb.jpg`.
-5. Attributes via the **BLIP-2** client (`BLIP2_ENDPOINT_URL`) — aspect-ratio
+5. Attributes via the **CLIP attribute classifier** client (`WARDROBE_ATTR_ENDPOINT_URL`) — aspect-ratio
    category hint passed in.
 6. Insert row (id obtained first so files land under `<profileId>/<itemId>/`),
    then `updateItem` with filenames + attributes; return the full item.
@@ -36,7 +36,7 @@ image-mimetype filter):
 
 - **bg removal unset or failing** → the resized original is used as the nobg
   image (logged; no transparency, but a valid item).
-- **BLIP-2 unset or failing** → conservative stub attributes (category from
+- **CLIP attribute classifier unset or failing** → conservative stub attributes (category from
   aspect ratio or `top`, `formality/warmth = 3`, current season) and the response
   carries **`aiAttributesAvailable: false`** so the client prompts the user to
   fill them in.

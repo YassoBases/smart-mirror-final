@@ -28,7 +28,7 @@ describe("wardrobe items routes (JWT)", () => {
     // images derived from request host + /wardrobe static path
     expect(res.body.item.imageUrl).toContain(`/wardrobe/${profileId}/`);
     expect(res.body.item.thumbnailUrl).toContain("/thumb.jpg");
-    // BLIP-2 unset in tests -> stub fallback flag is false
+    // CLIP attribute classifier unset in tests -> stub fallback flag is false
     expect(res.body.aiAttributesAvailable).toBe(false);
     expect(["top", "bottom", "outerwear", "footwear", "accessory"]).toContain(
       res.body.item.category,

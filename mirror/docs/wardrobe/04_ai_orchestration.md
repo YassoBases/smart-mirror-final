@@ -6,7 +6,7 @@
 |---|---|---|
 | [anthropic.js](../../backend/lib/anthropic.js) | Wraps `@anthropic-ai/sdk`. Model `ANTHROPIC_MODEL` (default **`claude-sonnet-4-6`**, env-overridable per spec). Uses **structured output** (`output_config.format` + a JSON schema) so the reply is strict JSON. | `isConfigured()` false → controller uses a deterministic local heuristic. |
 | [replicate.js](../../backend/lib/replicate.js) | Replicate HTTP API for IDM-VTON. `REPLICATE_API_TOKEN`, `REPLICATE_VTON_MODEL` (default a current IDM-VTON `owner/name:version`). Verifies the model id shape and surfaces a clear error on a bad/`422` version. | `isConfigured()` false → render returns the base body photo (no-op). |
-| [blip2_client.js](../../backend/lib/blip2_client.js) | (Phase 2) image → attributes. | stub attributes, `aiAttributesAvailable:false`. |
+| [wardrobe_attr_client.js](../../backend/lib/wardrobe_attr_client.js) | (Phase 2) image → attributes. | stub attributes, `aiAttributesAvailable:false`. |
 | [pref_client.js](../../backend/lib/pref_client.js) | pref_ranker sidecar `/score`, `/train`, `/health`. | `score()` → null (keep Claude order); `train()` → false. |
 | [context.js](../../backend/lib/context.js) | OpenWeatherMap (`OWM_API_KEY`) at `HOME_LAT`/`HOME_LNG`; season from latitude+month (S-hemisphere flipped), timeOfDay from local hour. | weather/temperature null; time+season still computed locally. |
 | [outfit_prompt.js](../../backend/lib/outfit_prompt.js) | The **verbatim** stylist system prompt + the response JSON schema + user-prompt builder. | — |

@@ -4,7 +4,7 @@
 //     -> validate it's an image, resize original to max 1024px edge (original.jpg)
 //     -> bg_remover sidecar -> transparent PNG (nobg.png)   [falls back to original]
 //     -> thumbnail from nobg (thumb.jpg)
-//     -> BLIP-2 caption -> structured attributes            [falls back to stub]
+//     -> CLIP attribute classifier caption -> structured attributes            [falls back to stub]
 //
 // Files are written under backend/data/wardrobe/<profileId>/<itemId>/ and served
 // statically at /wardrobe. The DB stores filenames only.
@@ -15,7 +15,7 @@ const sharp = require("sharp");
 
 const wardrobeDb = require("../../db/wardrobe");
 const bgRemover = require("../../lib/bg_remover");
-const blip2 = require("../../lib/blip2_client");
+const wardrobeAttr = require("../../lib/wardrobe_attr_client");
 const aiVision = require("../../lib/openai");
 
 const MAX_EDGE = 1024;
@@ -78,10 +78,10 @@ async function processItemUpload(buffer, profileId, itemId) {
     .toBuffer();
   fs.writeFileSync(path.join(dir, THUMB_NAME), thumbJpg);
 
-  // 4. Attributes via BLIP-2 (stub fallback when unset). Hint the category from
+  // 4. Attributes via CLIP attribute classifier (stub fallback when unset). Hint the category from
   //    aspect ratio: clearly tall garments are more likely bottoms/full-length.
   const categoryHint = meta.height > meta.width * 1.4 ? "bottom" : undefined;
-  let { attributes, available } = await blip2.captionImage(nobgPng, { categoryHint });
+  let { attributes, available } = await wardrobeAttr.captionImage(nobgPng, { categoryHint });
 
   // 4b. Second-layer accuracy check with OpenAI vision (when a key is set). This
   //     runs ON TOP of the CLIP model — not a fallback — to catch and correct
@@ -100,7 +100,7 @@ async function processItemUpload(buffer, profileId, itemId) {
     });
     if (corrected) {
       // Coerce + merge corrections over the CLIP result (only valid fields win).
-      attributes = blip2.normalizeAttributes(corrected, attributes);
+      attributes = wardrobeAttr.normalizeAttributes(corrected, attributes);
       available = true;
     }
   } catch (err) {

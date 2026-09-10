@@ -28,7 +28,7 @@ profile` and otherwise returns identical bodies.
 ```
 POST   /profiles/:profileId/wardrobe/items
         multipart: field "image" (raw garment photo)
-        -> bg removal -> BLIP-2 caption -> stores image+thumb -> inserts row
+        -> bg removal -> CLIP attribute classifier caption -> stores image+thumb -> inserts row
         -> 201 { item, aiAttributesAvailable: boolean }
 
 GET    /profiles/:profileId/wardrobe/items?category=top&season=winter
@@ -172,7 +172,7 @@ formality, warmth, seasons, tags, lastWornAt`. Server ignores any other key.
 
 ### POST items extra field
 
-`aiAttributesAvailable: boolean` — `false` when the BLIP-2 endpoint is unset and
+`aiAttributesAvailable: boolean` — `false` when the CLIP attribute classifier endpoint is unset and
 the server returned stub defaults, so the client should prompt the user to fill
 attributes in.
 
