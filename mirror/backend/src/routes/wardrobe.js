@@ -32,6 +32,7 @@ const upload = multer({
 // One row per endpoint. `jwt` / `mirror` are the path under each router's mount;
 // `file` names the multipart field (single upload) when present.
 const ENDPOINTS = [
+  { method: "post", jwt: "/wardrobe/live/layer", mirror: "/live/layer", file: "image", handler: "extractLiveLayer" },
   { method: "post",   jwt: "/wardrobe/items",      mirror: "/items",      file: "image", handler: "createItem" },
   { method: "get",    jwt: "/wardrobe/items",      mirror: "/items",                     handler: "listItems" },
   { method: "patch",  jwt: "/wardrobe/items/:id",  mirror: "/items/:id",                 handler: "patchItem" },

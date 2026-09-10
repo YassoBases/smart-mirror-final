@@ -933,7 +933,18 @@ async function getAcceptanceMetrics(req, res, next) {
   }
 }
 
+async function extractLiveLayer(req, res) {
+  if (!req.file) return res.status(400).json({ error: "image is required" });
+  try {
+    const png = await require('../../lib/bg_remover').removeBackground(req.file.buffer, req.file.mimetype);
+    return res.type('png').send(png);
+  } catch (error) {
+    return res.status(503).json({ error: "Background removal unavailable" });
+  }
+}
+
 module.exports = {
+  extractLiveLayer,
   serverRoot,
   bodyPhotoUrl,
   createItem,

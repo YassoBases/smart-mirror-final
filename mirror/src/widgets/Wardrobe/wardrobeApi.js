@@ -29,6 +29,15 @@ async function getJson(url, options) {
 }
 
 export const wardrobeApi = {
+  extractLayer: async (image) => {
+    const body = new FormData();
+    body.append('image', image, 'keyframe.png');
+    const response = await fetch(`${base()}/live/layer?mid=${mid()}`, {
+      method: 'POST', body, signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error('Background removal unavailable');
+    return response.blob();
+  },
   // All items (id -> attributes/thumbnails), used to render the flat-lay board.
   listItems: () => getJson(`${base()}/items?mid=${mid()}`),
 
