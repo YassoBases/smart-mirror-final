@@ -1,0 +1,7 @@
+Evaluation of an explicitly selected slice; historical split reproduction unverified; training overlap unknown.
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+attribute         acc  macro-F1      n  classes
+pattern         85.1%     0.751   1309        6
+fabric          80.9%     0.356   1170        7
+sleeveLength    91.6%     0.817   1256        5
+neckline        75.6%     0.453    757        7
