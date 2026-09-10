@@ -3,7 +3,7 @@
 // state. On-screen buttons are real <button>s so the mirror's existing
 // pinch-to-click drives next/try-on/feedback; the open-palm/fist/swipe gestures
 // are the hands-free alternatives.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 import { useProfile } from '../../contexts/ProfileContext';
@@ -13,6 +13,7 @@ import { createGestureRecognizer } from './gestureMap';
 import OutfitBoard from './OutfitBoard';
 import GeneratedBoard from './GeneratedBoard';
 import VtonView from './VtonView';
+import { wardrobeApi } from './wardrobeApi';
 import ReasoningCard from './ReasoningCard';
 import FeedbackHint from './FeedbackHint';
 
@@ -55,6 +56,12 @@ export default function WardrobeWidget() {
     return unsub;
   }, [state, actions]);
 
+  const refreshKeyframe = useCallback(() => {
+    // Generated concepts lack a cached refresh endpoint; reuse their still render
+    // rather than repeatedly synthesizing new garment products in live mode.
+    if (isGenerated) return Promise.resolve({ renderUrl, fromCache: true, hostedRenderCount: 0, imagesSent: 0 });
+    return wardrobeApi.render(current.itemIds);
+  }, [isGenerated, renderUrl, current]);
   const showBoard = [STATES.BOARD, STATES.RENDERING, STATES.VTON, STATES.FEEDBACK].includes(state);
   const showVton = [STATES.RENDERING, STATES.VTON, STATES.FEEDBACK].includes(state);
 
@@ -195,6 +202,10 @@ export default function WardrobeWidget() {
         <AnimatePresence>
           {showVton && (
             <VtonView
+              key={`${activeProfileId}:${mode}:${index}`}
+              selectionKey={`${activeProfileId}:${mode}:${index}`}
+              requestKeyframe={refreshKeyframe}
+              imagesPerRequest={(current?.itemIds?.length || 1) + 1}
               renderUrl={renderUrl}
               fromCache={fromCache}
               loading={state === STATES.RENDERING}
