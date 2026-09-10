@@ -1,0 +1,104 @@
+{
+  "interpretation": "Evaluation of an explicitly selected slice; historical split reproduction unverified; training overlap unknown.",
+  "historical_split_verified": false,
+  "training_overlap": "unknown",
+  "git_commit": "012ef3f14fd3fda1ff3537bf8876505f8f7e12b2",
+  "checkpoint_sha256": {
+    "heads.pt": "d0300fb5b6389cf78dfa7f39c9cb60c6c3ccd0196026ade8814a4ea55d4b75e0",
+    "label_maps.json": "ec5eea6e5d9a26cd4049f9e241b66a1e7147c5c2df6f0ffe6d81df2db2662016",
+    "config.json": "85b18388501247260a281ef2260cd1fb343a6d768d53b313c23c7dc2621f23f5"
+  },
+  "source": {
+    "dataset": "milica-vas/deepfashion-multimodal",
+    "revision": "ddd4ff93b3eddfa767eecab3a94d23035e6d063f",
+    "usable_rows": 17500,
+    "tail_size": 1500
+  },
+  "selected_rows_sha256": "a28e9f3b377832cff72af9fadf887e4c9ea185b0e2472d002a7fb28a7b682960",
+  "label_policy": {
+    "pattern": {
+      "fallback_count": 0,
+      "fallback_index": 0,
+      "fallback_class": "other",
+      "eligible": 1309,
+      "excluded": 191,
+      "macro_labels": [
+        "other",
+        "plaid",
+        "print",
+        "solid",
+        "stripe"
+      ],
+      "known_ground_truth_only": true
+    },
+    "fabric": {
+      "fallback_count": 0,
+      "fallback_index": 0,
+      "fallback_class": "chiffon",
+      "eligible": 1170,
+      "excluded": 330,
+      "macro_labels": [
+        "chiffon",
+        "cotton",
+        "denim",
+        "furry",
+        "knitted",
+        "leather"
+      ],
+      "known_ground_truth_only": true
+    },
+    "sleeveLength": {
+      "fallback_count": 0,
+      "fallback_index": 0,
+      "fallback_class": "long-sleeve",
+      "eligible": 1256,
+      "excluded": 244,
+      "macro_labels": [
+        "long-sleeve",
+        "medium-sleeve",
+        "short-sleeve",
+        "sleeveless"
+      ],
+      "known_ground_truth_only": true
+    },
+    "neckline": {
+      "fallback_count": 0,
+      "fallback_index": 0,
+      "fallback_class": "lapel",
+      "eligible": 757,
+      "excluded": 743,
+      "macro_labels": [
+        "lapel",
+        "round",
+        "square",
+        "standing",
+        "suspenders",
+        "v-neck"
+      ],
+      "known_ground_truth_only": true
+    }
+  },
+  "arguments": {
+    "headset": "dfmm",
+    "model": "clip_attr_dfmm",
+    "train": 16000,
+    "eval": 1500,
+    "source": null,
+    "dataset_revision": null,
+    "batch_size": 16,
+    "device": "cpu",
+    "out": "C:\\Users\\yasse\\Documents\\Codex\\2026-09-10\\this-x20\\outputs\\evaluation\\dfmm"
+  },
+  "device": "cpu",
+  "python": "3.11.15 (main, Apr 14 2026, 14:31:26) [MSC v.1944 64 bit (AMD64)]",
+  "packages": {
+    "torch": "2.12.1+cpu",
+    "transformers": "4.57.6",
+    "datasets": "4.8.5",
+    "huggingface-hub": "0.36.2",
+    "numpy": "2.4.6",
+    "scikit-learn": "1.9.0",
+    "matplotlib": "3.11.0",
+    "pillow": "12.3.0"
+  }
+}

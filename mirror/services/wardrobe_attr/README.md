@@ -51,3 +51,34 @@ Training improvements and retraining are outside this change.
 The abandoned captioning implementation and unmodified historical records are in
 [_archive_blip2](./_archive_blip2/README.md); their old relative links are historical.
 `dataset_prep.py` and `attributes.py` remain shared by the local annotation path.
+
+## Evaluate an explicit slice
+
+```bash
+python evaluate_clip_heads.py --headset fashion --model ./clip_attr_model --train 8000 --eval 800 --device cpu
+python evaluate_clip_heads.py --headset dfmm --model ./clip_attr_dfmm --train 16000 --eval 1500 --device cpu
+# Separate annotation path (not a reproduction of the shipped HF checkpoint):
+python evaluate_clip_heads.py --headset dfmm-local --model /path/to/local-trained-heads --source /path/to/DFMM --eval 200 --device cpu
+python -m unittest discover -s tests
+```
+
+These explicit example slices are not verified training splits. Training overlap
+is unknown. The evaluator resolves the HF revision to a commit (`--dataset-revision`
+can pin it), follows the trainer's row ordering and fallbacks, and retains only the
+requested HF tail. It refuses short HF collections rather than silently shifting
+the slice. Forward passes are batched (`--batch-size`, default 16).
+
+`--out` defaults to `results/<headset>`. Outputs are `metrics.json`,
+`provenance.json`, one complete per-class CSV and one confusion PNG per attribute.
+The fingerprint hashes each selected row's labels, image dimensions and RGB pixels
+in order; it is not a claim that these images were absent from training.
+
+Fashion macro-F1 includes every checkpoint class, even absent formality classes.
+HF DFMM masks unknown ground truth separately per head, but predictions of unknown
+are errors. Its macro-F1 includes all non-unknown classes, even zero-support ones.
+Every class, including unknown, remains in CSVs/matrices. Local DFMM follows its
+own trainer's unmasked labels. `n_classes` is the full checkpoint vocabulary size;
+the provenance records macro labels, excluded counts and index-fallback counts.
+No eligible examples yields JSON null scores and zero support, not fabricated 0%
+accuracy. These are proxy/caption labels and local-head metrics, not independently
+human-labelled garment quality or full upload-pipeline performance.

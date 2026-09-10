@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+from collections import deque
 import os
 
 import torch
@@ -82,14 +83,21 @@ def parse_attrs(text: str) -> dict:
             "sleeveLength": sleeve or UNKNOWN, "neckline": neck or UNKNOWN}
 
 
-def collect(n):
-    ds = load_dataset("milica-vas/deepfashion-multimodal", split="train", streaming=True)
-    rows = []
+def collect(n, *, revision=None, keep_last=None, stats=None):
+    """Keep trainer defaults; evaluation can pin a revision and retain only its tail."""
+    if n <= 0 or (keep_last is not None and keep_last <= 0):
+        raise ValueError("n and keep_last must be positive")
+    ds = load_dataset("milica-vas/deepfashion-multimodal", split="train", streaming=True, revision=revision)
+    rows = [] if keep_last is None else deque(maxlen=keep_last)
+    count = 0
     for ex in itertools.islice(ds, n):
         a = parse_attrs(ex["text"])
         a["image"] = ex["image"].convert("RGB")
         rows.append(a)
-    return rows
+        count += 1
+    if stats is not None:
+        stats["usable_rows"] = count
+    return list(rows) if keep_last is not None else rows
 
 
 def encode_all(model, rows, batch=64):

@@ -1,0 +1,20 @@
+{
+  "category": {
+    "accuracy": 0.98375,
+    "macro_f1": 0.9609191746743229,
+    "n": 800,
+    "n_classes": 5
+  },
+  "subcategory": {
+    "accuracy": 0.84,
+    "macro_f1": 0.663793552655853,
+    "n": 800,
+    "n_classes": 41
+  },
+  "formality": {
+    "accuracy": 0.87375,
+    "macro_f1": 0.6147294342974868,
+    "n": 800,
+    "n_classes": 5
+  }
+}

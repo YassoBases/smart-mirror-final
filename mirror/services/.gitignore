@@ -14,3 +14,6 @@ wardrobe_attr/data/
 wardrobe_attr/_cache_dfmm_*.pt
 wardrobe_attr/_cache_dfmm_*.pt
 wardrobe_attr/clip_attr_dfmm*/
+
+wardrobe_attr/results/
+**/__pycache__/

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+from collections import deque
 from collections import Counter
 
 import torch
@@ -40,9 +41,13 @@ def to_category(master, sub, article):
     return None  # skip ambiguous (Dress, Innerwear, …)
 
 
-def collect(n):
-    ds = load_dataset("ashraq/fashion-product-images-small", split="train", streaming=True)
-    rows = []
+def collect(n, *, revision=None, keep_last=None, stats=None):
+    """Keep trainer defaults; evaluation can pin a revision and retain only its tail."""
+    if n <= 0 or (keep_last is not None and keep_last <= 0):
+        raise ValueError("n and keep_last must be positive")
+    ds = load_dataset("ashraq/fashion-product-images-small", split="train", streaming=True, revision=revision)
+    rows = [] if keep_last is None else deque(maxlen=keep_last)
+    count = 0
     for ex in itertools.islice(ds, n * 2):  # over-pull; some get filtered
         cat = to_category(ex.get("masterCategory"), ex.get("subCategory"), ex.get("articleType"))
         if not cat or not ex.get("articleType"):
@@ -53,9 +58,12 @@ def collect(n):
             "subcategory": ex["articleType"].lower(),
             "formality": FORMALITY.get(ex.get("usage"), "3"),
         })
-        if len(rows) >= n:
+        count += 1
+        if count >= n:
             break
-    return rows
+    if stats is not None:
+        stats["usable_rows"] = count
+    return list(rows) if keep_last is not None else rows
 
 
 def build_label_maps(rows, top_subcats=30):

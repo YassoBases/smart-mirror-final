@@ -1,0 +1,124 @@
+{
+  "interpretation": "Evaluation of an explicitly selected slice; historical split reproduction unverified; training overlap unknown.",
+  "historical_split_verified": false,
+  "training_overlap": "unknown",
+  "git_commit": "012ef3f14fd3fda1ff3537bf8876505f8f7e12b2",
+  "checkpoint_sha256": {
+    "heads.pt": "d36c303e15d15c38e8f2e7fa7d4fb98e4a566c1564a41d47a66af68cf312b2b6",
+    "label_maps.json": "8808515b48ca6994cf3cc60c1aca386bc1c64b71183d90dadae585a22dd91fbb",
+    "config.json": "92fb4f3254ef665c48fd4ce085d55973e000b689b70139a82826e30135a6373e"
+  },
+  "source": {
+    "dataset": "ashraq/fashion-product-images-small",
+    "revision": "3859c76db2f6f3d3b9a3863345e3ccdbff75879d",
+    "usable_rows": 8800,
+    "tail_size": 800
+  },
+  "selected_rows_sha256": "35b3796237dced141b96ffc7d3851266ba05e6092983dd4b35c9d80135cef255",
+  "label_policy": {
+    "category": {
+      "fallback_count": 0,
+      "fallback_index": 0,
+      "fallback_class": "top",
+      "eligible": 800,
+      "excluded": 0,
+      "macro_labels": [
+        "top",
+        "bottom",
+        "outerwear",
+        "footwear",
+        "accessory"
+      ],
+      "known_ground_truth_only": false
+    },
+    "subcategory": {
+      "fallback_count": 25,
+      "fallback_index": 40,
+      "fallback_class": "other",
+      "eligible": 800,
+      "excluded": 0,
+      "macro_labels": [
+        "tshirts",
+        "shirts",
+        "casual shoes",
+        "watches",
+        "sports shoes",
+        "handbags",
+        "kurtas",
+        "tops",
+        "heels",
+        "flip flops",
+        "sunglasses",
+        "sandals",
+        "wallets",
+        "belts",
+        "backpacks",
+        "socks",
+        "jeans",
+        "formal shoes",
+        "flats",
+        "trousers",
+        "shorts",
+        "earrings",
+        "clutches",
+        "caps",
+        "track pants",
+        "sweatshirts",
+        "tunics",
+        "ties",
+        "capris",
+        "pendant",
+        "ring",
+        "kurtis",
+        "sweaters",
+        "jackets",
+        "skirts",
+        "leggings",
+        "laptop bag",
+        "necklace and chains",
+        "scarves",
+        "duffel bag",
+        "other"
+      ],
+      "known_ground_truth_only": false
+    },
+    "formality": {
+      "fallback_count": 0,
+      "fallback_index": 0,
+      "fallback_class": "1",
+      "eligible": 800,
+      "excluded": 0,
+      "macro_labels": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "known_ground_truth_only": false
+    }
+  },
+  "arguments": {
+    "headset": "fashion",
+    "model": "clip_attr_model",
+    "train": 8000,
+    "eval": 800,
+    "source": null,
+    "dataset_revision": null,
+    "batch_size": 16,
+    "device": "cpu",
+    "out": "C:\\Users\\yasse\\Documents\\Codex\\2026-09-10\\this-x20\\outputs\\evaluation\\fashion"
+  },
+  "device": "cpu",
+  "python": "3.11.15 (main, Apr 14 2026, 14:31:26) [MSC v.1944 64 bit (AMD64)]",
+  "packages": {
+    "torch": "2.12.1+cpu",
+    "transformers": "4.57.6",
+    "datasets": "4.8.5",
+    "huggingface-hub": "0.36.2",
+    "numpy": "2.4.6",
+    "scikit-learn": "1.9.0",
+    "matplotlib": "3.11.0",
+    "pillow": "12.3.0"
+  }
+}
