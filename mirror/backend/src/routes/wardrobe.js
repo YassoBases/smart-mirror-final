@@ -44,6 +44,7 @@ const ENDPOINTS = [
   { method: "post",   jwt: "/outfit/generate",        mirror: "/outfit/generate",        handler: "generateOutfit" },
   { method: "post",   jwt: "/outfit/generate/render", mirror: "/outfit/generate/render", handler: "renderGeneratedOutfit" },
   { method: "post",   jwt: "/outfit/render",          mirror: "/outfit/render",          handler: "renderOutfit" },
+  { method: "post",   jwt: "/outfit/render/live",     mirror: "/outfit/render/live",     file: "frame", handler: "renderOutfitLive" },
   { method: "get",    jwt: "/outfit/generations",     mirror: "/outfit/generations",     handler: "listGenerations" },
   { method: "delete", jwt: "/outfit/generations/:id", mirror: "/outfit/generations/:id", handler: "deleteGeneration" },
   { method: "post",   jwt: "/outfit/feedback",     mirror: "/outfit/feedback",           handler: "postFeedback" },

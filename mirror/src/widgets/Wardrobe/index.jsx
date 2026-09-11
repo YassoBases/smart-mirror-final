@@ -56,7 +56,14 @@ export default function WardrobeWidget() {
     return unsub;
   }, [state, actions]);
 
-  const refreshKeyframe = useCallback(() => {
+  // Keyframe source for live mode. Fast mode re-requests the (cached) still
+  // render; Live+ passes a frame captured from the camera, which the backend
+  // dresses through the hosted composer instead of the saved body photo.
+  const refreshKeyframe = useCallback((captured) => {
+    if (captured?.frame) {
+      if (isGenerated) return Promise.reject(new Error('Live+ is available for closet outfits only.'));
+      return wardrobeApi.renderLive(current.itemIds, captured.frame);
+    }
     // Generated concepts lack a cached refresh endpoint; reuse their still render
     // rather than repeatedly synthesizing new garment products in live mode.
     if (isGenerated) return Promise.resolve({ renderUrl, fromCache: true, hostedRenderCount: 0, imagesSent: 0 });

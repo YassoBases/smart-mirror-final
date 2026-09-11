@@ -1,13 +1,21 @@
 // Full virtual try-on render. While the render is in flight the OutfitBoard stays
 // visible underneath (this component is an overlay), so the screen is never empty.
+//
+// Two live options sit on top of the still render:
+//   Live   — fast path: warps the still render's torso onto the live pose.
+//   Live+  — hosted path: renders a live camera frame through the hosted composer
+//            and tracks top, bottoms and shoes; slower and costs hosted images.
 import { useRef, useState } from 'react';
 import { useLiveTryOn } from './useLiveTryOn';
 import { motion } from 'framer-motion';
 
 export default function VtonView({ renderUrl, loading, fromCache, onReady, selectionKey, requestKeyframe, imagesPerRequest }) {
-  const [enabled, setEnabled] = useState(false);
+  const [mode, setMode] = useState('still');
   const canvasRef = useRef(null);
-  const { active, notice } = useLiveTryOn({ enabled, canvasRef, renderUrl, selectionKey, requestKeyframe, imagesPerRequest });
+  const enabled = mode !== 'still';
+  const { active, notice } = useLiveTryOn({ enabled, mode: mode === 'still' ? 'fast' : mode, canvasRef, renderUrl, selectionKey, requestKeyframe, imagesPerRequest });
+  const toggle = next => setMode(current => (current === next ? 'still' : next));
+  const button = 'rounded bg-black/80 px-3 py-2 text-sm';
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -17,8 +25,18 @@ export default function VtonView({ renderUrl, loading, fromCache, onReady, selec
       className="absolute inset-0 rounded-xl bg-black/70 backdrop-blur-sm flex items-center justify-center"
     >
       <canvas ref={canvasRef} aria-label="Live try-on camera" className={`max-h-full max-w-full object-contain ${active ? '' : 'hidden'}`} />
-      {renderUrl && <button type="button" aria-pressed={enabled} onClick={() => setEnabled(value => !value)}
-        className="absolute top-2 left-2 z-20 rounded bg-black/80 px-3 py-2 text-sm">Live {enabled ? 'on' : 'off'}</button>}
+      {renderUrl && (
+        <div className="absolute top-2 left-2 z-20 flex gap-2">
+          <button type="button" aria-pressed={mode === 'fast'} onClick={() => toggle('fast')} className={button}>
+            Live {mode === 'fast' ? 'on' : 'off'}
+          </button>
+          <button type="button" aria-pressed={mode === 'hosted'} onClick={() => toggle('hosted')}
+            title="Hosted live try-on: renders you in the outfit from the camera and tracks top, bottoms and shoes. Slower; uses hosted renders."
+            className={`${button} text-sky-100`}>
+            Live+ {mode === 'hosted' ? 'on' : 'off'}
+          </button>
+        </div>
+      )}
       {notice && <p role="status" className="absolute top-14 left-2 right-2 z-20 bg-black/80 p-2 text-sm">{notice}</p>}
       {!active && (renderUrl ? (
         <div className="relative h-full w-full flex items-center justify-center">

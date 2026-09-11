@@ -10,9 +10,10 @@ import { extractGarmentLayer } from './garmentLayer';
 import { createGestureRecognizer } from './gestureMap';
 let mockProfileId = 1;
 jest.mock('../../contexts/ProfileContext', () => ({ useProfile: () => ({ activeProfile: { profileId: mockProfileId } }) }));
-jest.mock('./wardrobeApi', () => ({ wardrobeApi: { listItems: jest.fn(), suggest: jest.fn(), render: jest.fn() } }));
+jest.mock('./wardrobeApi', () => ({ wardrobeApi: { listItems: jest.fn(), suggest: jest.fn(), render: jest.fn(), renderLive: jest.fn() } }));
 jest.mock('../../services/poseTracking', () => ({ startPoseTracking: jest.fn(), stopPoseTracking: jest.fn(), estimateImagePose: jest.fn() }));
-jest.mock('./garmentLayer', () => ({ extractGarmentLayer: jest.fn() }));
+jest.mock('./garmentLayer', () => ({ extractGarmentLayer: jest.fn(), extractOutfitLayers: jest.fn() }));
+import { extractOutfitLayers } from './garmentLayer';
 beforeEach(() => {
   wardrobeApi.listItems.mockResolvedValue({ items: [{ id: 1, category: 'top', subcategory: 'shirt', thumbnailUrl: '/shirt.jpg' }] });
   wardrobeApi.suggest.mockResolvedValue({ candidates: [{ itemIds: [1], reasoning: 'A blue shirt', confidence: .9 }] });
@@ -52,6 +53,47 @@ test('available pose enables camera canvas and off restores identical still', as
   expect(screen.getByLabelText('Live try-on camera')).not.toHaveClass('hidden');
   fireEvent.click(screen.getByText('Live on'));
   expect(screen.getByAltText('Virtual try-on')).toHaveAttribute('src', '/still.jpg'); raf.mockRestore();
+});
+// Live+ (hosted) mode: the keyframe is a hosted render of a frame captured from
+// the camera, split into per-limb layers. These stub the canvas capture jsdom
+// lacks and drive the pose callback so the first keyframe request fires.
+function stubLiveCapture() {
+  publishCameraVideo({ srcObject: {}, readyState: 2, videoWidth: 640, videoHeight: 480, currentTime: 0 });
+  const pose = { leftShoulder: { x: .3, y: .3 }, rightShoulder: { x: .7, y: .3 }, leftHip: { x: .35, y: .6 }, rightHip: { x: .65, y: .6 } };
+  startPoseTracking.mockImplementation((video, onResult) => {
+    onResult({ landmarks: pose, visible: true, timestamp: performance.now() });
+    return { ready: Promise.resolve(true) };
+  });
+  jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: jest.fn() });
+  jest.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (cb) { cb(new Blob(['frame'], { type: 'image/jpeg' })); });
+  jest.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+}
+test('Live+ renders a captured camera frame through the hosted keyframe and shows the live canvas', async () => {
+  stubLiveCapture();
+  estimateImagePose.mockResolvedValue({ landmarks: {}, visible: true });
+  extractOutfitLayers.mockResolvedValue({ layers: [{ name: 'torso', pair: ['leftShoulder', 'rightShoulder'], canvas: document.createElement('canvas'), anchors: {} }], anchors: {}, extraction: 'test' });
+  const requestKeyframe = jest.fn(async () => ({ renderUrl: '/live.jpg', fromCache: false, hostedRenderCount: 1, imagesSent: 4 }));
+  render(<VtonView renderUrl="/still.jpg" requestKeyframe={requestKeyframe} imagesPerRequest={4} />);
+  fireEvent.click(screen.getByText('Live+ off'));
+  await waitFor(() => expect(screen.getByLabelText('Live try-on camera')).not.toHaveClass('hidden'));
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  const [captured] = requestKeyframe.mock.calls[0];
+  expect(captured.frame).toBeInstanceOf(Blob);
+  expect(captured.landmarks.leftShoulder).toBeDefined();
+  expect(extractOutfitLayers).toHaveBeenCalledWith('/live.jpg', expect.anything());
+  expect(screen.getByText('Live+ on')).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByText('Live off')).toHaveAttribute('aria-pressed', 'false');
+  jest.restoreAllMocks();
+});
+test('Live+ falls back to the still image and says why when the hosted render is not configured', async () => {
+  stubLiveCapture();
+  const requestKeyframe = jest.fn(async () => { throw new Error('Hosted live try-on is not configured (no Replicate token)'); });
+  render(<VtonView renderUrl="/still.jpg" requestKeyframe={requestKeyframe} />);
+  fireEvent.click(screen.getByText('Live+ off'));
+  expect(await screen.findByRole('status')).toHaveTextContent('Hosted live try-on is not configured');
+  expect(screen.getByAltText('Virtual try-on')).toHaveAttribute('src', '/still.jpg');
+  expect(extractOutfitLayers).not.toHaveBeenCalled();
+  jest.restoreAllMocks();
 });
 test('gesture stream dispatches documented dwell and swipe actions, then unsubscribes', () => {
   jest.useFakeTimers(); jest.setSystemTime(10000);

@@ -269,23 +269,28 @@ function itemImageUrl(root, profileId, row) {
 // 10s image read times out, which is the top cause of "could not render"). Falls
 // back to the public URL only if the upload itself fails.
 async function modelImageUrl(localPath, apiToken, fallbackUrl) {
+  return modelImageUrlFromBuffer(
+    fs.readFileSync(localPath),
+    path.basename(localPath, path.extname(localPath)) + ".jpg",
+    apiToken,
+    fallbackUrl,
+  );
+}
+
+async function modelImageUrlFromBuffer(input, filename, apiToken, fallbackUrl) {
   try {
     // Downscale/compress before upload: this box's uplink is slow, so a multi-MB
     // image takes a minute+ to leave it (and blows the render budget). A ~1024px
     // JPEG is tens of KB — uploads in seconds and is ample resolution for the
     // render. flatten() drops alpha (closet items are transparent PNGs) onto white,
     // which is also the ideal product background; rotate() honors EXIF orientation.
-    const buffer = await sharp(fs.readFileSync(localPath))
+    const buffer = await sharp(input)
       .rotate()
       .flatten({ background: "#ffffff" })
       .resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 82, mozjpeg: true })
       .toBuffer();
-    return await replicate.uploadFile({
-      buffer,
-      filename: path.basename(localPath, path.extname(localPath)) + ".jpg",
-      apiToken,
-    });
+    return await replicate.uploadFile({ buffer, filename, apiToken });
   } catch (err) {
     console.warn(
       "[wardrobe] Replicate upload failed, using public URL fallback:",
@@ -293,6 +298,46 @@ async function modelImageUrl(localPath, apiToken, fallbackUrl) {
     );
     return fallbackUrl;
   }
+}
+
+// Replicate config: prefer values set in the mirror Settings UI (app_settings),
+// fall back to env. publicBase is the origin Replicate fetches images from when
+// a direct upload isn't possible.
+async function hostedRenderConfig(req) {
+  const apiToken = await settings.getSetting("replicate_api_token", process.env.REPLICATE_API_TOKEN);
+  const nanoModel = await settings.getSetting("replicate_nano_model", process.env.REPLICATE_NANO_MODEL);
+  const publicBase = (
+    (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) ||
+    publicRoot(req)
+  ).replace(/\/$/, "");
+  return { apiToken, nanoModel, publicBase, configured: !!apiToken || replicate.isConfigured() };
+}
+
+// The selected closet items as Nano Banana garment references: each item's
+// background-removed image plus a rich description. Items without a usable
+// image are skipped (and logged), matching the still-render behaviour.
+async function garmentReferences(db, profileId, itemIds, { apiToken, publicBase }) {
+  const rows = [];
+  for (const id of itemIds) {
+    const row = await wardrobeDb.getItem(db, id);
+    if (row && row.profile_id === profileId) rows.push(row);
+  }
+  const garments = [];
+  for (const row of rows) {
+    if (!row.nobg_filename) {
+      console.warn(`[wardrobe] item ${row.id} has no nobg image; skipping in render`);
+      continue;
+    }
+    garments.push({
+      publicUrl: await modelImageUrl(
+        path.join(wardrobeDb.itemDir(profileId, row.id), row.nobg_filename),
+        apiToken,
+        itemImageUrl(publicBase, profileId, row),
+      ),
+      description: garmentDescription(row, row.category),
+    });
+  }
+  return { rows, garments };
 }
 
 // Rich, human-readable garment description for VTON — color + pattern + fabric +
@@ -334,50 +379,24 @@ async function renderOutfit(req, res, next) {
       });
     }
 
-    // Resolve the selected items (the whole outfit is composited at once).
-    const rows = [];
-    for (const id of itemIds) {
-      const row = await wardrobeDb.getItem(db, id);
-      if (row && row.profile_id === profileId) rows.push(row);
-    }
     const bodyUrl = bodyPhotoUrl(req, profileId, bodyFilename);
-
-    // Replicate config: prefer values set in the mirror Settings UI (app_settings),
-    // fall back to env. publicBase is the origin Replicate fetches images from.
-    const apiToken = await settings.getSetting("replicate_api_token", process.env.REPLICATE_API_TOKEN);
-    const nanoModel = await settings.getSetting("replicate_nano_model", process.env.REPLICATE_NANO_MODEL);
-    const publicBase = (
-      (await settings.getSetting("public_base_url", process.env.PUBLIC_BASE_URL)) ||
-      publicRoot(req)
-    ).replace(/\/$/, "");
+    const { apiToken, nanoModel, publicBase, configured: vtonConfigured } = await hostedRenderConfig(req);
 
     // Try-on is "configured" when we have a token (from Settings or env). When it
     // is, a failed render is surfaced as an error rather than silently returning
     // the unchanged body photo — that silent fallback made a broken render (e.g.
     // an unreachable public_base_url) look like "nothing happened".
-    const vtonConfigured = !!apiToken || replicate.isConfigured();
     let finalUrl = bodyUrl;
     let vtonRan = false;
     let imagesSent = 0;
+    let rows = [];
 
     if (vtonConfigured) {
       // Build the garment list from each item's background-removed image; Nano
       // Banana Pro dresses the person in all of them in a single pass.
-      const garments = [];
-      for (const row of rows) {
-        if (!row.nobg_filename) {
-          console.warn(`[wardrobe] item ${row.id} has no nobg image; skipping in render`);
-          continue;
-        }
-        garments.push({
-          publicUrl: await modelImageUrl(
-            path.join(wardrobeDb.itemDir(profileId, row.id), row.nobg_filename),
-            apiToken,
-            itemImageUrl(publicBase, profileId, row),
-          ),
-          description: garmentDescription(row, row.category),
-        });
-      }
+      const refs = await garmentReferences(db, profileId, itemIds, { apiToken, publicBase });
+      rows = refs.rows;
+      const { garments } = refs;
       if (garments.length === 0) {
         return res
           .status(400)
@@ -455,17 +474,89 @@ async function renderOutfit(req, res, next) {
   }
 }
 
+// POST /outfit/render/live — the hosted ("Live+") try-on keyframe. Same Nano
+// Banana pass as renderOutfit, but the person image is a frame captured from the
+// mirror's camera right now instead of the saved body photo, so the keyframe
+// matches the live pose, lighting and background. Every frame is unique, so
+// nothing is cached; the client's image budget plus a per-profile spacing guard
+// below bound the hosted spend. multipart: frame=<jpeg>, itemIds=<json array>.
+const LIVE_RENDER_MIN_INTERVAL_MS = 8000;
+const lastLiveRenderAt = new Map();
+
+async function renderOutfitLive(req, res, next) {
+  try {
+    if (!req.file) return res.status(400).json({ error: "frame is required" });
+    let itemIds;
+    try {
+      itemIds = validate(renderSchema, { itemIds: JSON.parse(req.body?.itemIds ?? "[]") }).itemIds;
+    } catch {
+      return res.status(400).json({ error: "itemIds must be a JSON array of item ids" });
+    }
+    const profileId = req.wardrobeProfileId;
+    const config = await hostedRenderConfig(req);
+    if (!config.configured) {
+      return res.status(503).json({
+        error: "Hosted live try-on is not configured (no Replicate token)",
+        code: "HOSTED_LIVE_UNSET",
+      });
+    }
+    const now = Date.now();
+    const since = now - (lastLiveRenderAt.get(profileId) || 0);
+    if (since < LIVE_RENDER_MIN_INTERVAL_MS) {
+      return res.status(429).json({
+        error: "Live try-on keyframes are limited to one every 8 seconds",
+        retryAfterMs: LIVE_RENDER_MIN_INTERVAL_MS - since,
+      });
+    }
+    lastLiveRenderAt.set(profileId, now);
+
+    const db = await getDb();
+    const { garments } = await garmentReferences(db, profileId, itemIds, config);
+    if (garments.length === 0) {
+      return res.status(400).json({ error: "None of the selected items have a usable image to render" });
+    }
+
+    const framePublicUrl = await modelImageUrlFromBuffer(req.file.buffer, "live-frame.jpg", config.apiToken, null);
+    if (!framePublicUrl) {
+      return res.status(502).json({ error: "Could not upload the camera frame for rendering" });
+    }
+    let outUrl;
+    try {
+      outUrl = await withTimeout(
+        nanoRenderOutfit({ bodyPublicUrl: framePublicUrl, garments, apiToken: config.apiToken, model: config.nanoModel }),
+        TRYON_BUDGET_MS,
+      );
+    } catch (err) {
+      console.warn("[wardrobe] live Nano render failed:", err.message);
+      return res.status(502).json({ error: "Could not render this outfit on the live frame.", detail: err.message });
+    }
+
+    const dir = wardrobeDb.ensureDir(wardrobeDb.rendersDir(profileId));
+    const filename = `live_${crypto.randomUUID()}.jpg`;
+    const r = await fetch(outUrl);
+    fs.writeFileSync(path.join(dir, filename), Buffer.from(await r.arrayBuffer()));
+
+    res.json({
+      renderUrl: `${serverRoot(req)}/wardrobe/${profileId}/renders/${filename}`,
+      fromCache: false,
+      hostedRenderCount: 1,
+      imagesSent: garments.length + 1,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── Outfit generation (new ideas, not from the closet) ────────────────────────
 
 // Resolves to the promise's value, or rejects after `ms` so a hung/slow call
 // (e.g. a throttled Replicate poll) can't block the caller indefinitely.
 function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("image gen timed out")), ms),
-    ),
-  ]);
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("image gen timed out")), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
 // Builds a Google Shopping search URL from a free-text item description so the
@@ -961,6 +1052,7 @@ module.exports = {
   generateOutfit,
   renderGeneratedOutfit,
   renderOutfit,
+  renderOutfitLive,
   listGenerations: listGenerationsRoute,
   deleteGeneration: deleteGenerationRoute,
   postFeedback,

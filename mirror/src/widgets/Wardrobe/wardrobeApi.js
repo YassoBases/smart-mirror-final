@@ -70,6 +70,19 @@ export const wardrobeApi = {
       body: JSON.stringify({ itemIds }),
     }),
 
+  // Hosted "Live+" keyframe: dress the person in a frame captured from the
+  // mirror's camera right now (not the saved body photo). Slow (a Nano Banana
+  // pass, tens of seconds), never cached, and every call costs hosted images —
+  // the caller's budget governs how often this is hit.
+  renderLive: (itemIds, frame) => {
+    const body = new FormData();
+    body.append('itemIds', JSON.stringify(itemIds));
+    body.append('frame', frame, 'frame.jpg');
+    return getJson(`${base()}/outfit/render/live?mid=${mid()}`, {
+      method: 'POST', body, signal: AbortSignal.timeout(190000),
+    });
+  },
+
   // Render a GENERATED outfit (concept items, not from the closet) onto the body
   // photo. The backend generates a product image per garment then composites them
   // with Nano Banana Pro. Returns { generationId, tryOnUrl }.

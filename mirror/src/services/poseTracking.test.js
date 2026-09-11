@@ -45,8 +45,10 @@ test('initialization failure logs once and reports a usable fallback', async () 
 test('exposes only normalized garment points and rejects hidden torso anchors', () => {
   const all=Array.from({length:33},()=>({x:2,y:-1,visibility:1}));
   let result=garmentLandmarks(all);
-  expect(Object.keys(result.landmarks)).toHaveLength(8);
+  // Torso + arms (8) plus knees, ankles and foot tips (6) for the Live+ leg/shoe layers.
+  expect(Object.keys(result.landmarks)).toHaveLength(14);
   expect(result.landmarks.leftShoulder).toEqual({x:1,y:0,visibility:1});
+  expect(result.landmarks.leftAnkle).toEqual({x:1,y:0,visibility:1});
   expect(result.visible).toBe(true);
   all[23].visibility=0;
   expect(garmentLandmarks(all).visible).toBe(false);
