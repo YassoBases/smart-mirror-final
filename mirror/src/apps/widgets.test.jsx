@@ -58,3 +58,14 @@ test.each(['data', 'empty', 'error'])('News %s state', async mode => {
   else expect(await screen.findByText(/no news|could not|unable|failed/i)).toBeInTheDocument();
   expect(fetch).toHaveBeenCalled();
 });
+// Each widget above is proven to degrade on its own fetch failure. This proves
+// the interface holds together when the backend is unreachable for *all* of
+// them at once — no shared error boundary trips, no widget's failure blocks
+// or crashes its neighbors' render.
+test('interface degrades visibly and safely across multiple widgets when the backend is unreachable', async () => {
+  global.fetch = jest.fn(async () => { throw new Error('Backend unreachable'); });
+  render(<><Weather /><Gmail /><News /></>);
+  expect(await screen.findByText('Unable to fetch weather data')).toBeInTheDocument();
+  expect(await screen.findByText('Backend unreachable')).toBeInTheDocument();
+  expect(await screen.findByText(/no news|could not load|unable to load news|failed/i)).toBeInTheDocument();
+});

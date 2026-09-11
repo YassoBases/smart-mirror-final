@@ -186,6 +186,49 @@ backend no longer emits" case called out in this session's instructions —
 recorded as findings rather than quietly deleted or fixed, since `app/` is
 out of scope to modify and the backend side is working as intended.
 
+**Cross-check requested for task 3.2:** whether any front-end widget test
+assumes the app's `Profile.fromJson` list-endpoint gap (Detail 2 above). The
+React mirror front-end has no equivalent "list of profiles" widget — it only
+ever renders one active profile per mirror — so that specific gap has no
+front-end analogue and no test assumes it. While checking this, found a
+third, separate instance of the same dead-code pattern on the mirror
+front-end itself (recorded below as its own item, #7), added while doing
+task 3.2.
+
+---
+
+## 7. Mirror front-end: `backendApi._normalizeProfile`'s nested `integrations.*` shape is dead code
+
+**Severity:** Low — same category as #6, no live bug, confirmed via a new test.
+
+**Status:** Found in task 3.2 while cross-checking for #6-style drift on the
+mirror front-end. Not fixed — flagged per the same "document, don't silently
+remove" instruction, and removing it would be an unrequested refactor of a
+shared normalizer.
+
+**Detail:** [src/services/backendApi.js:279-283](../../src/services/backendApi.js#L279-L283)
+(`_normalizeProfile`) reads connection status as
+`raw.integrations?.gmail?.connected ?? raw.gmailConnected` and
+`raw.integrations?.spotify?.connected ?? raw.spotifyConnected` — preferring a
+nested `integrations: { gmail: {...}, spotify: {...} }` shape over the flat
+legacy fields. `_normalizeProfile` has exactly one caller,
+`backendApi.getActiveProfile()`, which fetches
+`GET /api/mirrors/active-user`; that route
+([backend/src/routes/mirrors.js:254-265](../../backend/src/routes/mirrors.js#L254-L265))
+always returns the flat shape (`gmailConnected`, `spotifyConnected`, etc.)
+and never a nested `integrations` object. A repo-wide search turns up no
+producer of that nested shape anywhere — the only other place the word
+`integrations` appears is the unrelated `/api/mirrors/integrations` endpoint
+(household-level shared credentials, a completely different concept). So the
+nested branch is dead: it would only ever activate in a test that constructs
+it by hand, never against a real response.
+
+**Regression/contract test:** `src/services/backendApi.test.js` — asserts
+the real flat shape normalizes correctly, and separately documents (with a
+passing test) that the nested shape *would* take priority if it existed, to
+make the branch's continued existence and current inertness both explicit
+and test-visible rather than silently assumed.
+
 ---
 
 ## Session environment note (not a product defect)
