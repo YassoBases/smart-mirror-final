@@ -147,6 +147,47 @@ environment isn't mistaken for a new regression.
 
 ---
 
+## 6. app↔backend: dead-code drift in two client-side field-name fallbacks
+
+**Severity:** Low — no functional bug (the code paths that would need the dead
+convention are never hit), but confirmed genuine drift between the two sides.
+
+**Status:** Found via a new contract test (`backend/__tests__/app_contract.test.js`),
+task 3.4. Not fixed — `app/` is read-only for this work, and per instructions
+this is a finding to record, not something to silently clean up.
+
+**Detail 1 — `renderGeneratedOutfit`'s snake_case fallback is dead:**
+[app/lib/services/api_service.dart:636-637](../../../app/lib/services/api_service.dart#L636-L637)
+reads `body['tryOnUrl'] ?? body['try_on_url']` and `body['generationId'] ??
+body['generation_id']`. The backend
+([backend/src/controllers/wardrobeController.js:683-686](../../backend/src/controllers/wardrobeController.js#L683-L686))
+only ever returns `{ generationId, tryOnUrl }` — camelCase, never
+snake_case. The snake_case branch is leftover defensiveness from an earlier
+naming convention that no longer exists server-side.
+
+**Detail 2 — `spotify_connected`/`spotify_display_name` only exist on the
+single-profile response, not the list:**
+[app/lib/models/profile.dart](../../../app/lib/models/profile.dart) reads
+`spotify_connected` and `spotify_display_name` off any `Profile.fromJson`
+call. `GET /api/profiles` (list) is backed by
+`profileService.listProfiles()`, whose query never joins
+`spotify_connections` and so never emits those two fields; `GET
+/api/profiles/:id` (single) does, via a join in `profileService.getProfile()`.
+In practice this isn't a live bug: the only place `Profile.hasSpotify` is
+read (`app/lib/screens/profile_screen.dart`) always calls `getProfile(id)`
+in `initState` before rendering, which masks the gap. But it means a
+`Profile` sourced purely from the list endpoint can never answer
+`hasSpotify` correctly, and nothing currently stops a future screen from
+reading it off a list-sourced profile and silently showing "not connected"
+for a connected account.
+
+**Why left alone:** both are exactly the "client accepts a convention the
+backend no longer emits" case called out in this session's instructions —
+recorded as findings rather than quietly deleted or fixed, since `app/` is
+out of scope to modify and the backend side is working as intended.
+
+---
+
 ## Session environment note (not a product defect)
 
 This machine's default `python` on `PATH` resolves to a virtualenv
