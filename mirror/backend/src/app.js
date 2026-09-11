@@ -38,7 +38,7 @@ app.use("/alert-snapshots", express.static(path.join(__dirname, "../data/alert-s
 
 // Serve wardrobe item / body / render images, same mechanism as faces.
 // e.g. http://<host>:3000/wardrobe/<profileId>/<itemId>/nobg.png
-app.use("/wardrobe", express.static(path.join(__dirname, "../data/wardrobe")));
+app.use("/wardrobe", express.static(require("../db/wardrobe").WARDROBE_DATA_DIR));
 
 // Demo acceptance dashboard (admin/defense): self-contained page that plots the
 // acceptance metrics. http://<host>:3000/admin/wardrobe/?mid=demo-mirror

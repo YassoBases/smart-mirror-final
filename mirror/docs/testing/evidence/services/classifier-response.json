@@ -1,0 +1,22 @@
+{
+  "category": "top",
+  "subcategory": "tshirts",
+  "primaryColor": "#234F89",
+  "secondaryColors": [
+    "#1F4B87",
+    "#C6D1E0"
+  ],
+  "pattern": "other",
+  "fabricGuess": "cotton",
+  "formality": 2,
+  "warmth": 2,
+  "seasons": [
+    "spring",
+    "summer"
+  ],
+  "tags": [
+    "tshirts",
+    "short-sleeve",
+    "lapel"
+  ]
+}

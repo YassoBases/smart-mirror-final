@@ -1,0 +1,40 @@
+import React from 'react';
+import { render, screen, act, cleanup } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import { MemoryRouter } from 'react-router-dom';
+import SmartMirror from './SmartMirror';
+import { backendApi } from '../services/backendApi';
+let mockFaceCallback;
+let mockMatch = null;
+jest.mock('../components/HandTrackingService', () => props => { mockFaceCallback = props.onFaceDetected; return null; });
+jest.mock('../components/CursorOverlay', () => () => null);
+jest.mock('../components/AIAssistantOverlay', () => () => null);
+jest.mock('../hooks/useAIAssistant', () => ({ useAIAssistant: () => ({ remoteAudioRef: { current: null }, audioUnlocked: true }) }));
+jest.mock('../hooks/useActiveUser', () => () => ({ activeUser: null }));
+jest.mock('../hooks/useFaceEnrollment', () => () => {});
+jest.mock('../contexts/ProfileContext', () => ({ useProfile: () => ({ activeProfile: null }) }));
+jest.mock('../data/apps', () => ({ apps: [], getAppSettings: () => ({ enabled: true }), isWidgetEnabled: () => false }));
+jest.mock('../data/generalSettings', () => {
+  const actual = jest.requireActual('../data/generalSettings');
+  return { ...actual, getGeneralSettings: () => ({ ...actual.getGeneralSettings(), faceRecognitionEnabled: true }) };
+});
+jest.mock('../data/users', () => ({ findUserByFace: () => mockMatch, findBestFaceDistance: () => .8,
+  saveFaceDescriptor: jest.fn(), getUsers: () => ({ profiles: [{ id: 1, source: 'phone' }] }), setActiveUser: jest.fn() }));
+jest.mock('../services/backendApi', () => ({ backendApi: { getMirrorId: () => 'mirror', setActiveMirrorUser: jest.fn(), reportUnknownFace: jest.fn() } }));
+afterEach(() => { cleanup(); mockMatch = null; jest.clearAllMocks(); });
+test('confirmation frames drive scanning → recognition → unknown alert → scanning', () => {
+  render(<MemoryRouter><SmartMirror /></MemoryRouter>);
+  expect(screen.getByText('Scanning…')).toBeInTheDocument();
+  mockMatch = { user: { id: 1, backendId: 10, name: 'Alex' }, distance: .2, margin: .3 };
+  act(() => mockFaceCallback({ descriptor: [] }));
+  expect(backendApi.setActiveMirrorUser).not.toHaveBeenCalled();
+  act(() => mockFaceCallback({ descriptor: [] }));
+  expect(backendApi.setActiveMirrorUser).toHaveBeenCalledWith('mirror', 10);
+  expect(screen.getByText(/Alex/)).toBeInTheDocument();
+  mockMatch = null;
+  for (let i = 0; i < 3; i++) act(() => mockFaceCallback({ descriptor: [] }));
+  expect(screen.getByText(/Unknown/)).toBeInTheDocument();
+  expect(backendApi.reportUnknownFace).toHaveBeenCalledTimes(1);
+  for (let i = 0; i < 4; i++) act(() => mockFaceCallback(null));
+  expect(screen.getByText('Scanning…')).toBeInTheDocument();
+});

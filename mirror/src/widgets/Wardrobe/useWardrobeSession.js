@@ -30,10 +30,14 @@ export function useWardrobeSession() {
   // 'closet' = suggest from wardrobe (supports VTON); 'generated' = invented ideas.
   const [mode, setMode] = useState('closet');
   const busy = useRef(false);
+  const epoch = useRef(0);
+  useEffect(() => () => { epoch.current++; }, []);
 
   const current = candidates[index] || null;
 
   const reset = useCallback(() => {
+    epoch.current++; busy.current = false;
+    setItemsById({}); setContext(null);
     setState(STATES.IDLE);
     setCandidates([]);
     setIndex(0);
@@ -45,6 +49,7 @@ export function useWardrobeSession() {
 
   const invoke = useCallback(async () => {
     if (busy.current) return;
+    const started = epoch.current;
     busy.current = true;
     setError(null);
     setState(STATES.LOADING);
@@ -53,6 +58,7 @@ export function useWardrobeSession() {
         wardrobeApi.listItems(),
         wardrobeApi.suggest(3, occasion),
       ]);
+      if (started !== epoch.current) return;
       const map = {};
       for (const it of itemsRes.items || []) map[it.id] = it;
       setItemsById(map);
@@ -63,6 +69,7 @@ export function useWardrobeSession() {
       setState(cands.length ? STATES.BOARD : STATES.IDLE);
       if (!cands.length) setError('No outfits to suggest yet. Add items to your wardrobe.');
     } catch (err) {
+      if (started !== epoch.current) return;
       setError(
         err.status === 404
           ? 'No active profile on this mirror.'
@@ -70,19 +77,21 @@ export function useWardrobeSession() {
       );
       setState(STATES.IDLE);
     } finally {
-      busy.current = false;
+      if (started === epoch.current) busy.current = false;
     }
   }, [occasion]);
 
   // Invent brand-new outfit ideas (not from the closet).
   const generate = useCallback(async () => {
     if (busy.current) return;
+    const started = epoch.current;
     busy.current = true;
     setError(null);
     setMode('generated');
     setState(STATES.LOADING);
     try {
       const res = await wardrobeApi.generate(3, occasion);
+      if (started !== epoch.current) return;
       setContext(res.context || null);
       const cands = res.candidates || [];
       setCandidates(cands);
@@ -90,6 +99,7 @@ export function useWardrobeSession() {
       setState(cands.length ? STATES.BOARD : STATES.IDLE);
       if (!cands.length) setError('Could not generate outfits right now.');
     } catch (err) {
+      if (started !== epoch.current) return;
       setError(
         err.status === 503
           ? 'Outfit generation is not configured on the mirror.'
@@ -98,7 +108,7 @@ export function useWardrobeSession() {
       setState(STATES.IDLE);
       setMode('closet');
     } finally {
-      busy.current = false;
+      if (started === epoch.current) busy.current = false;
     }
   }, [occasion]);
 
@@ -115,25 +125,29 @@ export function useWardrobeSession() {
   // different endpoint and return `tryOnUrl` instead of `renderUrl`.
   const renderVton = useCallback(async () => {
     if (busy.current || !current) return;
+    const started = epoch.current;
     busy.current = true;
     setError(null);
     setState(STATES.RENDERING);
     try {
       if (mode === 'generated') {
         const res = await wardrobeApi.generateRender(current.items, context);
+        if (started !== epoch.current) return;
         setRenderUrl(res.tryOnUrl);
         setFromCache(false);
       } else {
         const res = await wardrobeApi.render(current.itemIds);
+        if (started !== epoch.current) return;
         setRenderUrl(res.renderUrl);
         setFromCache(!!res.fromCache);
       }
       setState(STATES.VTON); // VtonView flips to FEEDBACK once the image loads
     } catch (err) {
+      if (started !== epoch.current) return;
       setError(err.message || 'Could not render the outfit.');
       setState(STATES.BOARD);
     } finally {
-      busy.current = false;
+      if (started === epoch.current) busy.current = false;
     }
   }, [current, mode, context]);
 
@@ -145,6 +159,7 @@ export function useWardrobeSession() {
   const sendFeedback = useCallback(
     async (rating) => {
       if (!current) return;
+      const started = epoch.current;
       try {
         await wardrobeApi.feedback({
           // Closet outfits carry itemIds; generated outfits carry item attrs.
@@ -155,10 +170,11 @@ export function useWardrobeSession() {
           context,
         });
       } catch (err) {
+      if (started !== epoch.current) return;
         // Non-fatal — feedback is best-effort.
         console.warn('[wardrobe] feedback failed:', err.message);
       }
-      reset();
+      if (started === epoch.current) reset();
     },
     [current, context, mode, reset],
   );

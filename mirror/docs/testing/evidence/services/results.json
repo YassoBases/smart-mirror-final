@@ -1,0 +1,60 @@
+{
+  "wardrobe_attr": {
+    "status": "passed",
+    "result": {
+      "category": "top",
+      "subcategory": "tshirts",
+      "primaryColor": "#234F89",
+      "secondaryColors": [
+        "#1F4B87",
+        "#C6D1E0"
+      ],
+      "pattern": "other",
+      "fabricGuess": "cotton",
+      "formality": 2,
+      "warmth": 2,
+      "seasons": [
+        "spring",
+        "summer"
+      ],
+      "tags": [
+        "tshirts",
+        "short-sleeve",
+        "lapel"
+      ]
+    },
+    "elapsed_seconds": 46.843
+  },
+  "bg_remover": {
+    "status": "passed",
+    "result": {
+      "alpha_min": 0,
+      "alpha_max": 255,
+      "size": [
+        256,
+        256
+      ]
+    },
+    "elapsed_seconds": 18.953
+  },
+  "pref_ranker": {
+    "status": "passed",
+    "result": {
+      "heuristic": {
+        "scores": [
+          0.8500000000000001,
+          0.25
+        ],
+        "model": false
+      },
+      "learned": {
+        "scores": [
+          0.9333976897169803,
+          0.06660231028301954
+        ],
+        "model": true
+      }
+    },
+    "elapsed_seconds": 10.75
+  }
+}
