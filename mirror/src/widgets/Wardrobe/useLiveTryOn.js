@@ -9,6 +9,22 @@ export function poseDiverged(reference, current, width, height) {
   return !!t && (Math.abs(t.rotation) > Math.PI / 6 || Math.abs(t.scale - 1) > .30);
 }
 
+// The shared camera runs at the hand-tracking preset (320x240 by default) —
+// fine for gestures, far too small for a try-on canvas or a hosted keyframe.
+// Raise the track while live try-on is on; gesture/face tracking downsizes
+// whatever the track delivers, so they are unaffected. Returns a restore fn.
+export const LIVE_CAPTURE = { width: { ideal: 1280 }, height: { ideal: 720 } };
+export async function boostCameraTrack(video) {
+  const track = video?.srcObject?.getVideoTracks?.()?.[0];
+  if (!track?.applyConstraints) return () => {};
+  const before = track.getSettings?.() || {};
+  try { await track.applyConstraints(LIVE_CAPTURE); } catch { return () => {}; }
+  return () => {
+    const restore = { width: before.width, height: before.height };
+    if (restore.width && restore.height) track.applyConstraints(restore).catch(() => {});
+  };
+}
+
 // Two live modes share one loop:
 //   'fast'   — warp the torso of the existing still render onto the live pose
 //              (no hosted calls until the budgeted keyframe refresh).
@@ -30,6 +46,7 @@ export function useLiveTryOn({ enabled, mode = 'fast', canvasRef, renderUrl, sel
       setNotice('Live pose tracking is unavailable. Showing the still image.'); return;
     }
     let stopped = false, handle, raf, layer, layers = [], latest, referenceLive, pending = false;
+    let restoreCamera = () => {};
     let lastRefresh = performance.now(), retryAt = 0, failures = 0, lastVideoTime = -1;
     let frameWindow = performance.now(), windowFrames = 0, warmedAt = null;
     const requests = [], submitted = [];
@@ -42,7 +59,7 @@ export function useLiveTryOn({ enabled, mode = 'fast', canvasRef, renderUrl, sel
     const fallback = message => {
       if (stopped) return;
       stats.status = 'still'; publish(); setNotice(message); setActive(false);
-      stopped = true; stopPoseTracking(handle); cancelAnimationFrame(raf);
+      stopped = true; stopPoseTracking(handle); cancelAnimationFrame(raf); restoreCamera();
     };
     const load = async url => {
       const pose = await estimateImagePose(url);
@@ -61,7 +78,7 @@ export function useLiveTryOn({ enabled, mode = 'fast', canvasRef, renderUrl, sel
       canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       canvas.getContext('2d').drawImage(video, 0, 0);
       canvas.toBlob(blob => blob ? resolve({ frame: blob, landmarks: latest?.landmarks }) : reject(new Error('Cannot capture the camera frame.')),
-        'image/jpeg', 0.85);
+        'image/jpeg', 0.92);
     });
     const refresh = async (now, { rethrow = false } = {}) => {
       if (!requestRef.current || pending || now < retryAt) return;
@@ -134,6 +151,8 @@ export function useLiveTryOn({ enabled, mode = 'fast', canvasRef, renderUrl, sel
     publish();
     (async () => {
       try {
+        restoreCamera = await boostCameraTrack(video);
+        if (stopped) { restoreCamera(); return; }
         if (!hosted) { await load(renderUrl); if (stopped) return; layer.url = renderUrl; }
         handle = startPoseTracking(video, result => {
           latest = result;
@@ -155,7 +174,7 @@ export function useLiveTryOn({ enabled, mode = 'fast', canvasRef, renderUrl, sel
         raf = requestAnimationFrame(draw);
       } catch (error) { fallback(error.message || 'Live try-on unavailable. Showing the still image.'); }
     })();
-    return () => { stopped = true; stopPoseTracking(handle); cancelAnimationFrame(raf); stats.status = 'stopped'; publish(); };
+    return () => { stopped = true; stopPoseTracking(handle); cancelAnimationFrame(raf); restoreCamera(); stats.status = 'stopped'; publish(); };
   }, [enabled, mode, renderUrl, selectionKey, canvasRef, refreshIntervalMs, imagesPerRequest]);
   return { active, notice };
 }

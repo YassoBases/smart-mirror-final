@@ -92,10 +92,29 @@ export function torsoQuad(anchors) {
   ];
 }
 
-function clipTo(ctx, quad, width, height) {
+function tracePath(ctx, quad, width, height) {
   ctx.beginPath();
   quad.forEach((p, i) => (i ? ctx.lineTo(p.x * width, p.y * height) : ctx.moveTo(p.x * width, p.y * height)));
-  ctx.closePath(); ctx.clip();
+  ctx.closePath();
+}
+
+// Cuts `quad` out of `image` with a feathered (blurred) edge, so adjacent
+// segments blend where they overlap instead of showing hard polygon seams.
+function featheredCutout(image, quad, width, height, feather) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(image, 0, 0);
+  const mask = document.createElement('canvas');
+  mask.width = width; mask.height = height;
+  const mctx = mask.getContext('2d');
+  mctx.filter = `blur(${feather}px)`;
+  mctx.fillStyle = '#fff';
+  tracePath(mctx, quad, width, height); mctx.fill();
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.drawImage(mask, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  return canvas;
 }
 
 // Builds the per-segment layers for a hosted keyframe. Segments whose anchors are
@@ -107,17 +126,14 @@ export async function extractOutfitLayers(renderImageUrl, poseAtRender) {
   const { image, extraction } = await loadPersonCutout(renderImageUrl);
   const width = image.naturalWidth, height = image.naturalHeight;
   const hipHalfWidth = Math.hypot(anchors.rightHip.x - anchors.leftHip.x, anchors.rightHip.y - anchors.leftHip.y) * 0.45;
+  const feather = Math.max(2, width * 0.012);
   const layers = [];
   for (const segment of SEGMENTS) {
     const [a, b] = segment.pair;
     if (!visible(anchors[a]) || !visible(anchors[b])) continue;
     const quad = segment.torso ? torsoQuad(anchors)
       : segmentQuad(anchors[a], anchors[b], hipHalfWidth * (segment.widthScale || 1));
-    const canvas = document.createElement('canvas');
-    canvas.width = width; canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    clipTo(ctx, quad, width, height);
-    ctx.drawImage(image, 0, 0);
+    const canvas = featheredCutout(image, quad, width, height, feather);
     layers.push({ name: segment.name, pair: segment.pair, canvas, anchors });
   }
   return { layers, anchors, extraction: `${extraction}-segments` };

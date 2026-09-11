@@ -85,6 +85,21 @@ test('Live+ renders a captured camera frame through the hosted keyframe and show
   expect(screen.getByText('Live off')).toHaveAttribute('aria-pressed', 'false');
   jest.restoreAllMocks();
 });
+test('live try-on raises the shared camera track to 720p and restores the gesture preset when it stops', async () => {
+  stubLiveCapture();
+  const track = { getSettings: () => ({ width: 320, height: 240 }), applyConstraints: jest.fn(async () => {}) };
+  publishCameraVideo({ srcObject: { getVideoTracks: () => [track] }, readyState: 2, videoWidth: 320, videoHeight: 240, currentTime: 0 });
+  estimateImagePose.mockResolvedValue({ landmarks: {}, visible: true });
+  extractOutfitLayers.mockResolvedValue({ layers: [{ name: 'torso', pair: ['leftShoulder', 'rightShoulder'], canvas: document.createElement('canvas'), anchors: {} }], anchors: {}, extraction: 'test' });
+  const requestKeyframe = jest.fn(async () => ({ renderUrl: '/live.jpg', fromCache: false, hostedRenderCount: 1, imagesSent: 2 }));
+  render(<VtonView renderUrl="/still.jpg" requestKeyframe={requestKeyframe} />);
+  fireEvent.click(screen.getByText('Live+ off'));
+  await waitFor(() => expect(screen.getByLabelText('Live try-on camera')).not.toHaveClass('hidden'));
+  expect(track.applyConstraints).toHaveBeenCalledWith({ width: { ideal: 1280 }, height: { ideal: 720 } });
+  fireEvent.click(screen.getByText('Live+ on'));
+  await waitFor(() => expect(track.applyConstraints).toHaveBeenLastCalledWith({ width: 320, height: 240 }));
+  jest.restoreAllMocks();
+});
 test('Live+ falls back to the still image and says why when the hosted render is not configured', async () => {
   stubLiveCapture();
   const requestKeyframe = jest.fn(async () => { throw new Error('Hosted live try-on is not configured (no Replicate token)'); });
