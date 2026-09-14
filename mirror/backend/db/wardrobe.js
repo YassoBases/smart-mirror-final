@@ -118,6 +118,25 @@ async function initWardrobeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_wardrobe_generations_profile
       ON wardrobe_generations(profile_id, created_at DESC);
   `);
+
+  // Garment-identity recognition gallery — one row per enrolled item, holding
+  // the embedding used to recognize "that specific garment" on the mirror.
+  // Deliberately its own table, not a wardrobe_items column: the embedding is
+  // never part of the item API shape (see serializeItem), so this can't drift
+  // the response the phone app already parses.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS garment_embeddings (
+      item_id     INTEGER PRIMARY KEY,
+      profile_id  INTEGER NOT NULL,
+      embedding   TEXT NOT NULL,     -- JSON array of floats
+      dim         INTEGER NOT NULL,
+      projected   INTEGER NOT NULL DEFAULT 0,  -- 1 if the identity head was applied
+      created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (item_id) REFERENCES wardrobe_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_garment_embeddings_profile ON garment_embeddings(profile_id);
+  `);
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -276,6 +295,34 @@ async function updateItem(db, itemId, attrs = {}, files = {}) {
 
 async function softDeleteItem(db, itemId) {
   await db.run("UPDATE wardrobe_items SET deleted = 1 WHERE id = ?", itemId);
+  // Soft delete doesn't remove the row, so the embeddings' FK CASCADE never
+  // fires — drop the recognition entry explicitly so a deleted item stops
+  // being "recognized" on the mirror.
+  await db.run("DELETE FROM garment_embeddings WHERE item_id = ?", itemId);
+}
+
+// ── Garment-identity recognition gallery ───────────────────────────────────────
+
+async function upsertGarmentEmbedding(db, itemId, profileId, embedding, projected) {
+  await db.run(
+    `INSERT INTO garment_embeddings (item_id, profile_id, embedding, dim, projected)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(item_id) DO UPDATE SET
+       embedding = excluded.embedding, dim = excluded.dim, projected = excluded.projected`,
+    itemId, profileId, JSON.stringify(embedding), embedding.length, projected ? 1 : 0,
+  );
+}
+
+/** All enrolled embeddings for a profile, joined to their (non-deleted) item. */
+async function listGarmentEmbeddings(db, profileId) {
+  const rows = await db.all(
+    `SELECT ge.item_id, ge.embedding, ge.dim, ge.projected
+     FROM garment_embeddings ge
+     JOIN wardrobe_items wi ON wi.id = ge.item_id
+     WHERE ge.profile_id = ? AND wi.deleted = 0`,
+    profileId,
+  );
+  return rows.map((r) => ({ ...r, embedding: JSON.parse(r.embedding) }));
 }
 
 // ── Body photo (one per profile) ──────────────────────────────────────────────
@@ -475,6 +522,8 @@ module.exports = {
   listItems,
   updateItem,
   softDeleteItem,
+  upsertGarmentEmbedding,
+  listGarmentEmbeddings,
   // body photo
   setBodyPhoto,
   getBodyPhotoFilename,

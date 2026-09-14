@@ -16,6 +16,8 @@ import VtonView from './VtonView';
 import { wardrobeApi } from './wardrobeApi';
 import ReasoningCard from './ReasoningCard';
 import FeedbackHint from './FeedbackHint';
+import { useGarmentRecognition } from './useGarmentRecognition';
+import GarmentRecognitionOverlay from './GarmentRecognitionOverlay';
 
 const OCCASIONS = ['any', 'casual', 'smart casual', 'business', 'formal', 'sport', 'party'];
 
@@ -72,6 +74,10 @@ export default function WardrobeWidget() {
   const showBoard = [STATES.BOARD, STATES.RENDERING, STATES.VTON, STATES.FEEDBACK].includes(state);
   const showVton = [STATES.RENDERING, STATES.VTON, STATES.FEEDBACK].includes(state);
 
+  // "Do I already own this?" ambient recognition — only while idle, so it never
+  // competes on-screen with outfit browsing or try-on.
+  const garmentRecognition = useGarmentRecognition({ enabled: state === STATES.IDLE });
+
   return (
     <div className="relative w-full h-full rounded-xl bg-black/40 backdrop-blur-sm text-white p-4 flex flex-col select-none">
       <div className="flex items-center justify-between">
@@ -124,6 +130,11 @@ export default function WardrobeWidget() {
               </button>
             </div>
             {error && <p className="text-[11px] text-rose-300/80">{error}</p>}
+            <GarmentRecognitionOverlay
+              phase={garmentRecognition.phase}
+              result={garmentRecognition.result}
+              onConfirm={garmentRecognition.confirm}
+            />
           </div>
         )}
 

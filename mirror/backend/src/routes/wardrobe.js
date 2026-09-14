@@ -51,12 +51,19 @@ const ENDPOINTS = [
   { method: "get",    jwt: "/outfit/feedback",     mirror: "/outfit/feedback",           handler: "getFeedback" },
   { method: "get",    jwt: "/context",             mirror: "/context",                   handler: "getContext" },
   { method: "get",    jwt: "/metrics/acceptance",  mirror: "/metrics/acceptance",        handler: "getAcceptanceMetrics" },
+
+  // Garment-identity recognition (see docs/wardrobe/GARMENT_RECOGNITION.md).
+  // recognize takes a short burst of frames (never persisted); enroll takes
+  // exactly one confirmed frame and creates a real item from it.
+  { method: "post", jwt: "/wardrobe/recognize",        mirror: "/recognize",        files: { field: "images", max: 5 }, handler: "recognizeGarment" },
+  { method: "post", jwt: "/wardrobe/recognize/enroll", mirror: "/recognize/enroll", file: "image",                     handler: "enrollRecognizedGarment" },
 ];
 
 function build(router, guard, pathKey) {
   for (const ep of ENDPOINTS) {
     const mws = [guard];
     if (ep.file) mws.push(upload.single(ep.file));
+    if (ep.files) mws.push(upload.array(ep.files.field, ep.files.max));
     router[ep.method](ep[pathKey], ...mws, ctrl[ep.handler]);
   }
   return router;

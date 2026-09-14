@@ -17,6 +17,7 @@ from PIL import Image
 
 import attributes as attr
 from clip_heads import ClipAttr
+from identity_head import IdentityHead
 
 # Comma-separated dirs: e.g. "./clip_attr_model,./clip_attr_dfmm" — the first has
 # category/subcategory/formality heads, the second adds pattern/fabric/etc. Both
@@ -31,9 +32,17 @@ MODEL_DIR = os.environ.get(
 )
 TOKEN = os.environ.get("WARDROBE_ATTR_ENDPOINT_TOKEN", os.environ.get("BLIP2_ENDPOINT_TOKEN", ""))
 
+# Garment-identity projection head (see identity_head.py / train_identity_head.py).
+# Optional: /embed still returns a raw CLIP embedding when this isn't trained yet.
+IDENTITY_MODEL_DIR = os.environ.get(
+    "WARDROBE_IDENTITY_MODEL_DIR", os.path.join(_HERE, "clip_identity_head")
+)
+
 app = FastAPI(title="wardrobe_attr")
 _model = None
 _sets = None
+_identity_head = None
+_identity_load_attempted = False
 
 
 def _load():
@@ -46,6 +55,21 @@ def _load():
         dirs = [d.strip() for d in MODEL_DIR.split(",") if d.strip() and os.path.isdir(d.strip())]
         _sets = [_model.load_head_set(d) for d in dirs]
     return _model, _sets
+
+
+def _load_identity_head():
+    """Lazy, best-effort: an untrained/missing head means /embed falls back to
+    the raw CLIP embedding rather than failing the request."""
+    global _identity_head, _identity_load_attempted
+    if _identity_load_attempted:
+        return _identity_head
+    _identity_load_attempted = True
+    if os.path.isdir(IDENTITY_MODEL_DIR):
+        try:
+            _identity_head = IdentityHead.load(IDENTITY_MODEL_DIR)
+        except Exception as err:
+            print(f"[wardrobe_attr] identity head at {IDENTITY_MODEL_DIR} failed to load: {err}")
+    return _identity_head
 
 
 def _dominant_colors(img: Image.Image):
@@ -78,7 +102,36 @@ def _none_if(v, *blanks):
 @app.get("/health")
 def health():
     dirs = [d.strip() for d in MODEL_DIR.split(",") if d.strip()]
-    return {"status": "ok", "model_dirs": dirs, "loaded": all(os.path.isdir(d) for d in dirs)}
+    return {
+        "status": "ok",
+        "model_dirs": dirs,
+        "loaded": all(os.path.isdir(d) for d in dirs),
+        "identity_head_trained": os.path.isdir(IDENTITY_MODEL_DIR),
+    }
+
+
+@app.post("/embed")
+async def embed(image: UploadFile = File(...), authorization: str = Header(default="")):
+    """Garment-identity embedding for recognition (not attribute classification —
+    see POST / for that). Returns the SAME shared frozen CLIP encoder's feature,
+    passed through the trained identity projection head when one exists.
+    Never persists the image; it is decoded, embedded, and discarded."""
+    if TOKEN and authorization != f"Bearer {TOKEN}":
+        raise HTTPException(status_code=401, detail="invalid token")
+    data = await image.read()
+    try:
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid image")
+
+    model, _ = _load()
+    feat = model.features([img])  # (1, 512), L2-normalized
+    head = _load_identity_head()
+    projected = head is not None
+    if head is not None:
+        with torch.no_grad():
+            feat = head(feat)
+    return {"embedding": feat[0].tolist(), "projected": projected, "dim": feat.shape[-1]}
 
 
 @app.post("/")

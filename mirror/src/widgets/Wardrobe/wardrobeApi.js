@@ -104,4 +104,28 @@ export const wardrobeApi = {
   context: () => getJson(`${base()}/context?mid=${mid()}`),
 
   bodyPhoto: () => getJson(`${base()}/body-photo?mid=${mid()}`),
+
+  // Garment-identity recognition. `frames` (Blob[]) is a short burst captured
+  // while someone is stably in view — never sent unless the caller already
+  // decided to check; nothing about this call is persisted server-side.
+  // Resolves { status: 'recognized', item, similarity } | { status: 'unknown', similarity }.
+  recognizeGarment: (frames) => {
+    const body = new FormData();
+    frames.forEach((frame, i) => body.append('images', frame, `frame${i}.jpg`));
+    return getJson(`${base()}/recognize?mid=${mid()}`, {
+      method: 'POST', body, signal: AbortSignal.timeout(20000),
+    });
+  },
+
+  // Only call after the user has explicitly confirmed on-screen — this is the
+  // one call in this file that actually creates and stores something. `frame`
+  // is the single confirmed capture; runs it through the normal item-creation
+  // pipeline and enrolls it for future recognition.
+  enrollGarment: (frame) => {
+    const body = new FormData();
+    body.append('image', frame, 'garment.jpg');
+    return getJson(`${base()}/recognize/enroll?mid=${mid()}`, {
+      method: 'POST', body, signal: AbortSignal.timeout(30000),
+    });
+  },
 };

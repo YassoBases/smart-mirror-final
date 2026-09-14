@@ -15,6 +15,9 @@ const replicate = require("../../lib/replicate");
 const prefClient = require("../../lib/pref_client");
 const contextLib = require("../../lib/context");
 const settings = require("./../services/settingsService");
+const bgRemover = require("../../lib/bg_remover");
+const identityClient = require("../../lib/wardrobe_identity_client");
+const recognition = require("../services/garmentRecognitionService");
 const {
   validate,
   itemPatchSchema,
@@ -40,20 +43,31 @@ function bodyPhotoUrl(req, profileId, filename) {
 
 // ── Items ─────────────────────────────────────────────────────────────────────
 
+/**
+ * The actual item-creation pipeline: insert the row, run the upload pipeline
+ * (resize/bg-remove/thumbnail/classify), persist attributes. Shared by the
+ * manual upload route below AND the mirror's auto-enrollment path
+ * (recognizeAndEnroll), so an auto-enrolled item is structurally identical to
+ * one added by hand — same columns filled the same way, nothing bespoke.
+ * @returns {{ row: object, aiAttributesAvailable: boolean }}
+ */
+async function createItemFromBuffer(db, profileId, buffer) {
+  const itemId = await wardrobeDb.createItemRow(db, profileId);
+  const { files, attributes, aiAttributesAvailable } =
+    await imageService.processItemUpload(buffer, profileId, itemId);
+  const row = await wardrobeDb.updateItem(db, itemId, attributes, files);
+  return { row, aiAttributesAvailable };
+}
+
 async function createItem(req, res, next) {
   try {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({ error: "No image uploaded (field 'image')" });
     }
-    const profileId = req.wardrobeProfileId;
     const db = await getDb();
-
-    // Insert first to get the auto-increment id, then write files under <itemId>/.
-    const itemId = await wardrobeDb.createItemRow(db, profileId);
-    const { files, attributes, aiAttributesAvailable } =
-      await imageService.processItemUpload(req.file.buffer, profileId, itemId);
-
-    const row = await wardrobeDb.updateItem(db, itemId, attributes, files);
+    const { row, aiAttributesAvailable } = await createItemFromBuffer(
+      db, req.wardrobeProfileId, req.file.buffer,
+    );
     res.status(201).json({
       item: wardrobeDb.serializeItem(row, serverRoot(req)),
       aiAttributesAvailable,
@@ -1038,11 +1052,118 @@ async function extractLiveLayer(req, res) {
   }
 }
 
+// ── Garment-identity recognition ("is this a garment I already own?") ─────────
+//
+// Two separate steps, deliberately: recognizeGarment never writes anything —
+// no file, no DB row, no embedding stored — it only answers "known or
+// unknown". enrollAndCreateItem is the only one of the two that persists
+// anything, and only runs on the mirror's explicit user confirmation
+// (enforced client-side; nothing here calls it automatically).
+
+// Background-removes each captured frame the same way item photos are (so the
+// embedding matches what's stored for enrolled items), embeds each via the
+// identity service, and averages+renormalizes — the "combine a short window of
+// frames" step from the recognition spec. Never writes to disk.
+async function embedFrames(buffers) {
+  const embeddings = [];
+  let dim = null, projected = false;
+  for (const buffer of buffers) {
+    let nobg;
+    try {
+      nobg = await bgRemover.removeBackground(buffer, "image/jpeg");
+    } catch {
+      nobg = buffer; // bg_remover unset/unavailable — embed the raw frame instead
+    }
+    const result = await identityClient.getEmbedding(nobg);
+    embeddings.push(result.embedding);
+    dim = result.dim;
+    projected = result.projected;
+  }
+  const mean = new Array(dim).fill(0);
+  for (const e of embeddings) for (let i = 0; i < dim; i++) mean[i] += e[i] / embeddings.length;
+  const norm = Math.sqrt(mean.reduce((s, v) => s + v * v, 0)) || 1;
+  return { embedding: mean.map((v) => v / norm), dim, projected };
+}
+
+// POST /recognize — multipart, 1+ images under "images". Never persists
+// anything: pure in-memory embed + gallery lookup, discarded after response.
+async function recognizeGarment(req, res, next) {
+  try {
+    const files = req.files || [];
+    if (files.length === 0) {
+      return res.status(400).json({ error: "At least one image is required (field 'images')" });
+    }
+    if (!identityClient.isConfigured()) {
+      return res.status(503).json({ status: "unavailable", error: "Garment recognition is not configured" });
+    }
+    const profileId = req.wardrobeProfileId;
+    const db = await getDb();
+    const { embedding } = await embedFrames(files.map((f) => f.buffer));
+    const gallery = await wardrobeDb.listGarmentEmbeddings(db, profileId);
+    const match = recognition.bestMatch(gallery, embedding);
+    if (!match.matched) {
+      return res.json({ status: "unknown", similarity: match.similarity });
+    }
+    const row = await wardrobeDb.getItem(db, match.itemId);
+    if (!row) return res.json({ status: "unknown", similarity: match.similarity }); // item deleted since gallery read
+    res.json({
+      status: "recognized",
+      similarity: match.similarity,
+      item: wardrobeDb.serializeItem(row, serverRoot(req)),
+    });
+  } catch (err) {
+    if (err.code === "WARDROBE_IDENTITY_UNSET") {
+      return res.status(503).json({ status: "unavailable", error: "Garment recognition is not configured" });
+    }
+    next(err);
+  }
+}
+
+// POST /recognize/enroll — multipart, one confirmed image under "image". Only
+// ever called after the user has explicitly confirmed on the mirror (see
+// GARMENT_RECOGNITION.md); creates the item through the SAME pipeline a manual
+// upload uses (createItemFromBuffer), then enrolls its embedding so it's
+// recognizable from here on. If embedding fails, the item is still created
+// (attribute classification already succeeded) — it just isn't recognizable
+// yet, same as any item enrolled before this feature existed.
+async function enrollRecognizedGarment(req, res, next) {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: "No image uploaded (field 'image')" });
+    }
+    const profileId = req.wardrobeProfileId;
+    const db = await getDb();
+    const { row, aiAttributesAvailable } = await createItemFromBuffer(db, profileId, req.file.buffer);
+
+    let recognitionEnrolled = false;
+    try {
+      const nobgPath = path.join(wardrobeDb.itemDir(profileId, row.id), row.nobg_filename);
+      const nobgBuffer = fs.readFileSync(nobgPath);
+      const { embedding, projected } = await identityClient.getEmbedding(nobgBuffer);
+      await wardrobeDb.upsertGarmentEmbedding(db, row.id, profileId, embedding, projected);
+      recognitionEnrolled = true;
+    } catch (err) {
+      console.warn("[wardrobe] auto-enroll: item created but embedding failed:", err.message);
+    }
+
+    res.status(201).json({
+      item: wardrobeDb.serializeItem(row, serverRoot(req)),
+      aiAttributesAvailable,
+      recognitionEnrolled,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   extractLiveLayer,
+  recognizeGarment,
+  enrollRecognizedGarment,
   serverRoot,
   bodyPhotoUrl,
   createItem,
+  createItemFromBuffer,
   listItems,
   patchItem,
   deleteItem,
